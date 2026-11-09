@@ -1,0 +1,17 @@
+# 运行数据（含 OAuth token、会话表、面板口令）——绝不提交
+data/
+.env
+# 本机部署覆盖（1panel-network 等站点专属配置）
+docker-compose.override.yml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+*.swp

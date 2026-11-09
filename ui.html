@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Colab Panel</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+:root{
+  --bg:#080D18;--surface:#0F172A;--surface-2:#131F36;
+  --line:#1E293B;--line-2:#26364F;
+  --txt:#F1F5F9;--dim:#94A3B8;--dim-2:#64748B;
+  --acc:#3B82F6;--acc-2:#2563EB;--acc-glow:rgba(59,130,246,.22);
+  --ok:#22C55E;--err:#F43F5E;--warn:#F59E0B;
+  --radius:14px;--ease:cubic-bezier(.4,0,.2,1);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  min-height:100vh;background:var(--bg);color:var(--txt);overflow-x:hidden;
+  font:400 14px/1.6 "Fira Sans",-apple-system,"Segoe UI","Noto Sans SC",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(760px 420px at 12% -8%,rgba(59,130,246,.16),transparent 62%),
+    radial-gradient(680px 380px at 88% -4%,rgba(34,197,94,.10),transparent 60%),
+    radial-gradient(900px 700px at 50% 120%,rgba(37,99,235,.10),transparent 65%);
+}
+body::after{
+  content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.35;
+  background-image:linear-gradient(rgba(148,163,184,.045) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(148,163,184,.045) 1px,transparent 1px);
+  background-size:64px 64px;
+  -webkit-mask-image:radial-gradient(circle at 50% 0%,#000 0%,transparent 72%);
+  mask-image:radial-gradient(circle at 50% 0%,#000 0%,transparent 72%);
+}
+.wrap{position:relative;z-index:1;max-width:1240px;margin:0 auto;padding:0 24px 72px}
+
+.topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:32px 0 22px}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{
+  width:44px;height:44px;flex:0 0 44px;display:grid;place-items:center;border-radius:13px;color:#fff;
+  background:linear-gradient(150deg,#3B82F6,#1D4ED8 70%);
+  box-shadow:0 0 0 1px rgba(255,255,255,.14) inset,0 12px 28px -12px rgba(59,130,246,.9);
+}
+.logo svg{width:22px;height:22px}
+h1{font:600 20px/1.25 "Fira Code",ui-monospace,monospace;letter-spacing:-.01em}
+.sub{color:var(--dim-2);font:400 12px/1.5 "Fira Code",ui-monospace,monospace;letter-spacing:.02em}
+
+.card{
+  position:relative;background:linear-gradient(180deg,var(--surface-2),#0E1728 78%);
+  border:1px solid rgba(148,163,184,.13);border-radius:var(--radius);padding:20px 22px;margin-bottom:18px;
+  box-shadow:0 1px 0 rgba(255,255,255,.045) inset,0 20px 40px -32px rgba(0,0,0,.95);
+}
+.card>b{display:flex;align-items:center;gap:10px;margin-bottom:14px;font:600 13px/1.4 "Fira Code",ui-monospace,monospace;letter-spacing:.02em}
+.card>b::before{content:"";width:3px;height:15px;border-radius:2px;background:linear-gradient(180deg,#60A5FA,#2563EB);box-shadow:0 0 12px rgba(59,130,246,.7)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.spacer{flex:1}
+
+.status-bar{display:flex;gap:10px;flex-wrap:wrap;font-size:13px}
+.kv{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border-radius:10px;background:rgba(8,15,29,.85);border:1px solid var(--line);color:var(--dim);font:400 12px/1 "Fira Code",ui-monospace,monospace}
+.kv b{color:var(--txt);font-weight:600}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:0 16px;
+  border:1px solid rgba(96,165,250,.35);border-radius:11px;white-space:nowrap;cursor:pointer;
+  background:linear-gradient(180deg,#3B82F6,#2563EB);color:#fff;
+  font:600 13px/1 "Fira Sans",sans-serif;letter-spacing:.01em;
+  box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 10px 22px -14px rgba(37,99,235,.95);
+  transition:transform .18s var(--ease),box-shadow .18s var(--ease),filter .18s var(--ease),background .18s var(--ease),border-color .18s var(--ease),color .18s var(--ease);
+}
+.btn:hover{transform:translateY(-1px);filter:brightness(1.07);box-shadow:0 1px 0 rgba(255,255,255,.2) inset,0 16px 28px -14px rgba(37,99,235,1)}
+.btn:active{transform:translateY(0)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none;filter:none;box-shadow:none}
+.btn.gray{background:linear-gradient(180deg,#1C2942,#16203A);border-color:rgba(148,163,184,.22);color:#CBD5E1;box-shadow:0 1px 0 rgba(255,255,255,.05) inset}
+.btn.gray:hover{background:linear-gradient(180deg,#24334F,#1A2540);color:#F1F5F9}
+.btn.red{background:linear-gradient(180deg,#F43F5E,#BE123C);border-color:rgba(251,113,133,.4);box-shadow:0 1px 0 rgba(255,255,255,.16) inset,0 10px 22px -14px rgba(190,18,60,.95)}
+.btn.green{background:linear-gradient(180deg,#22C55E,#15803D);border-color:rgba(74,222,128,.4);box-shadow:0 1px 0 rgba(255,255,255,.16) inset,0 10px 22px -14px rgba(21,128,61,.95)}
+.btn.sm{min-height:34px;padding:0 12px;font-size:12px;border-radius:9px}
+.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible,.tab:focus-visible{outline:2px solid #93C5FD;outline-offset:2px}
+
+input,select,textarea{
+  background:#080F1D;border:1px solid var(--line-2);color:var(--txt);border-radius:10px;
+  padding:9px 12px;min-height:40px;font:400 13px/1.4 "Fira Sans",sans-serif;
+  transition:border-color .18s var(--ease),box-shadow .18s var(--ease),background .18s var(--ease);
+}
+input::placeholder,textarea::placeholder{color:#556177}
+input:hover,select:hover,textarea:hover{border-color:#33456A}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-glow);background:#0A1424}
+input[readonly]{color:var(--dim);background:#0A1220}
+select{
+  appearance:none;-webkit-appearance:none;padding-right:34px;cursor:pointer;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;background-size:15px;
+}
+input[type=checkbox]{min-height:0;width:16px;height:16px;padding:0;accent-color:var(--acc);cursor:pointer;border-radius:4px}
+input[type=number]{font-variant-numeric:tabular-nums}
+textarea{width:100%;min-height:120px;font:400 12.5px/1.7 "Fira Code",ui-monospace,Menlo,monospace;resize:vertical}
+label.row{color:var(--dim);font-size:12.5px;cursor:pointer;user-select:none;min-height:40px}
+
+.tabs{display:flex;gap:4px;padding:5px;margin:0 0 20px;overflow-x:auto;scrollbar-width:none;
+  background:rgba(15,23,42,.85);border:1px solid var(--line);border-radius:15px}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:0 0 auto;padding:10px 18px;border-radius:11px;cursor:pointer;white-space:nowrap;
+  font:500 13px/1 "Fira Sans",sans-serif;color:var(--dim);
+  transition:background .18s var(--ease),color .18s var(--ease)}
+.tab:hover{color:var(--txt);background:rgba(148,163,184,.08)}
+.tab.on{color:#fff;border:0;margin-bottom:0;background:linear-gradient(180deg,#3B82F6,#2563EB);
+  box-shadow:0 8px 20px -12px rgba(37,99,235,1),0 1px 0 rgba(255,255,255,.18) inset}
+.pane{display:none}
+.pane.on{display:block;animation:paneIn .26s var(--ease)}
+@keyframes paneIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+.sess-list{display:flex;flex-direction:column;gap:10px}
+.sess{position:relative;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  border:1px solid var(--line);border-radius:12px;padding:12px 14px 12px 16px;
+  background:linear-gradient(180deg,rgba(19,31,54,.7),rgba(14,23,40,.7));
+  transition:border-color .18s var(--ease),background .18s var(--ease),transform .18s var(--ease)}
+.sess::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:0 3px 3px 0;background:#334155;transition:background .18s var(--ease)}
+.sess:hover{border-color:#2E4368;transform:translateX(1px)}
+.sess.active{border-color:rgba(59,130,246,.55);background:linear-gradient(180deg,rgba(30,64,120,.34),rgba(14,23,40,.8))}
+.sess.active::before{background:linear-gradient(180deg,#60A5FA,#2563EB);box-shadow:0 0 10px rgba(59,130,246,.8)}
+.sess .name{font:600 13px/1.3 "Fira Code",ui-monospace,monospace;color:var(--txt)}
+.sess .meta{color:var(--dim-2);font-size:12px}
+.sess .meta b{color:#93C5FD;font-family:"Fira Code",ui-monospace,monospace;font-weight:600}
+.sess .ops{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+
+pre.out{
+  background:#050A14;border:1px solid #16233A;border-radius:12px;padding:13px 15px;
+  font:400 12.5px/1.7 "Fira Code",ui-monospace,Menlo,Consolas,monospace;
+  max-height:300px;overflow:auto;white-space:pre-wrap;word-break:break-all;
+  color:#B9C6DA;box-shadow:0 12px 30px -26px #000 inset;
+}
+pre.out::selection{background:rgba(59,130,246,.35)}
+
+.hidden{display:none}
+.label{color:var(--dim-2);font:500 11.5px/1.4 "Fira Code",ui-monospace,monospace;letter-spacing:.03em}
+a{color:#60A5FA;text-decoration:none;border-bottom:1px solid rgba(96,165,250,.35);transition:color .18s}
+a:hover{color:#93C5FD}
+.mut{color:var(--dim-2);font-size:12.5px;line-height:1.6}
+
+.tag{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:7px;border:1px solid rgba(148,163,184,.18);
+  background:rgba(148,163,184,.12);color:#CBD5E1;font:500 11px/1 "Fira Code",ui-monospace,monospace;letter-spacing:.04em}
+.tag.orphan{background:rgba(245,158,11,.14);color:#FCD34D;border-color:rgba(245,158,11,.3)}
+.tag.ok{background:rgba(34,197,94,.13);color:#86EFAC;border-color:rgba(34,197,94,.28)}
+
+.files{display:flex;flex-direction:column;gap:3px;margin-top:12px;max-height:340px;overflow:auto}
+.frow{display:flex;gap:10px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid transparent;
+  font:400 12.5px/1.5 "Fira Code",ui-monospace,monospace;transition:background .15s,border-color .15s}
+.frow:hover{background:rgba(30,41,59,.6);border-color:var(--line)}
+.frow .fname{flex:1;word-break:break-all;color:#CBD5E1}
+
+.busy{display:inline-flex;align-items:center;gap:6px;color:var(--warn);font:500 12px/1.4 "Fira Code",ui-monospace,monospace}
+.busy:not(:empty)::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--warn);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.bar{height:8px;background:#070E1B;border:1px solid rgba(148,163,184,.08);border-radius:5px;overflow:hidden;margin:7px 0 5px;box-shadow:0 1px 3px rgba(0,0,0,.5) inset}
+.bar>i{display:block;width:0;height:100%;border-radius:4px;background:linear-gradient(90deg,#2563EB,#60A5FA);box-shadow:0 0 14px rgba(59,130,246,.55);transition:width .45s var(--ease)}
+.bar>i.g{background:linear-gradient(90deg,#15803D,#4ADE80);box-shadow:0 0 14px rgba(34,197,94,.5)}
+.bar>i.y{background:linear-gradient(90deg,#B45309,#FBBF24);box-shadow:0 0 14px rgba(245,158,11,.45)}
+
+details{margin-top:14px}
+summary{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:8px;border:1px solid transparent;
+  color:var(--dim-2);font-size:12px;cursor:pointer;list-style:none;
+  transition:background .15s,border-color .15s,color .15s}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"";width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .18s var(--ease)}
+details[open]>summary::before{transform:rotate(90deg)}
+summary:hover{background:rgba(148,163,184,.08);border-color:var(--line);color:var(--txt)}
+.ec-state{color:var(--dim-2);font:400 11.5px/1.5 "Fira Code",ui-monospace,monospace;letter-spacing:.02em}
+
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#1E2A42;border:2px solid transparent;border-radius:6px;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#2C3E5E;background-clip:content-box}
+
+@media(max-width:860px){
+  .wrap{padding:0 16px 56px}
+  .topbar{padding:24px 0 18px}
+  .card{padding:16px;border-radius:12px}
+  .grid2{grid-template-columns:1fr}
+  .btn.sm{min-height:40px}
+  h1{font-size:18px}
+  .tabs{border-radius:12px;margin-bottom:16px}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5"/><path d="M12 22V12"/>
+        </svg>
+      </div>
+      <div>
+        <h1>Colab Panel</h1>
+        <div class="sub">GOOGLE COLAB · 远程实例与模型工作台</div>
+      </div>
+    </div>
+    <div class="spacer"></div>
+  </div>
+
+  <div id="loginCard" class="card hidden">
+    <b>未绑定 Google 账号</b>
+    <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
+      <div><span class="label">第 1 步</span> <button class="btn" id="btnAuthUrl">获取授权链接</button> <span class="mut">在任意设备的浏览器打开并登录</span></div>
+      <div><span class="label">第 2 步</span> 把 Google 页面显示的授权码粘贴到下面</div>
+      <div class="row">
+        <input id="authCode" placeholder="粘贴授权码" style="flex:1;min-width:220px">
+        <button class="btn green" id="btnAuthCode">提交授权码</button>
+      </div>
+      <pre class="out hidden" id="authOut"></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>账号状态</b>
+    <div class="row status-bar" id="statusBar"><span class="mut">加载中…</span></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn gray" id="btnRefreshStatus">刷新状态</button>
+      <button class="btn red hidden" id="btnLogout">解除绑定</button>
+      <label class="row" style="gap:8px"><input type="checkbox" id="privacyMode"> 隐藏邮箱</label>
+      <div class="spacer"></div>
+      <span class="mut">API Token 已启用</span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab on" data-pane="paneSess">实例</div>
+    <div class="tab" data-pane="paneModel">模型工作台</div>
+    <div class="tab" data-pane="paneExec">执行 / 文件</div>
+    <div class="tab" data-pane="paneRun">一次性任务</div>
+    <div class="tab" data-pane="paneLogs">历史日志</div>
+    <div class="tab" data-pane="paneGuard">守护与成本</div>
+  </div>
+
+  <!-- 实例 -->
+  <div class="pane on" id="paneSess">
+    <div class="card">
+      <b>新建 / 复用实例</b>
+      <div class="row">
+        <select id="gpuType">
+          <option value="t4">T4 (16GB)</option>
+          <option value="l4">L4 (24GB)</option>
+          <option value="a100">A100 (40GB)</option>
+          <option value="h100">H100 (80GB)</option>
+          <option value="g4">G4 (RTX PRO 6000 · 96GB)</option>
+          <option value="cpu">CPU</option>
+        </select>
+        <label class="row" style="gap:4px"><input type="checkbox" id="highMem"> 大内存</label>
+        <label class="row" style="gap:4px"><input type="checkbox" id="reuseChk" checked> 幂等复用</label>
+        <input id="newName" placeholder="会话名（可选）" style="width:170px">
+        <button class="btn green" id="btnNew">新建/复用</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <b>活跃实例 <span class="tag" id="sessCount">0</span></b>
+      <div class="row" style="margin-bottom:10px">
+        <button class="btn gray sm" id="btnRefreshSess">刷新列表</button>
+        <button class="btn gray sm" id="btnTelAll">全部遥测</button>
+        <button class="btn red sm" id="btnStopAll">释放全部（含孤儿）</button>
+        <span class="busy" id="sessBusy"></span>
+      </div>
+      <div class="sess-list" id="sessList"><span class="mut">加载中…</span></div>
+      <div id="telAllWrap" class="hidden" style="margin-top:12px">
+        <div class="label" style="margin-bottom:6px">全部实例硬件快照</div>
+        <div id="telAllOut"></div>
+      </div>
+      <details style="margin-top:10px">
+        <summary class="mut" style="cursor:pointer">CLI 原始输出</summary>
+        <pre class="out" id="sessOut" style="margin-top:8px"></pre>
+      </details>
+    </div>
+  </div>
+
+  <!-- 模型工作台（EasyColab 服务端部署 + 模型管理） -->
+  <div class="pane" id="paneModel">
+    <div class="card">
+      <b>部署 EasyColab 模型服务端</b>
+      <div class="row" style="margin:8px 0">
+        <span class="label">目标实例</span>
+        <select id="ecSessSel"><option value="">— 先在实例页建/接管 —</option></select>
+        <button class="btn green" id="btnEcDeploy">一键部署</button>
+        <button class="btn gray sm" id="btnEcStop">停止服务</button>
+        <button class="btn gray sm" id="btnEcStatus">刷新状态</button>
+        <span class="busy" id="ecBusy"></span>
+      </div>
+      <div class="mut" id="ecInfo" style="margin-bottom:8px">
+        把 easycolab/app.py 上传到实例并后台拉起。它自带 Gradio WebUI + FastAPI 网关
+        （/minimax_api/* 与 OpenAI/Anthropic 兼容 /v1/*），隧道开好后可直接在下方管理模型。
+        首次部署如缺 DiffSynth-Studio 会额外耗时 3~10 分钟。
+      </div>
+      <div class="row" id="ecUrlRow" style="display:none;margin-bottom:8px">
+        <span class="label">服务地址</span>
+        <input id="ecUrl" readonly style="flex:1;min-width:280px">
+        <button class="btn gray sm" id="btnEcOpen">打开 WebUI</button>
+        <button class="btn gray sm" id="btnEcCopy">复制</button>
+      </div>
+      <pre class="out" id="ecOut" style="max-height:220px;overflow:auto"></pre>
+    </div>
+
+    <div class="card">
+      <b>模型清单 <span class="tag" id="ecModelCount">0</span></b>
+      <div class="mut" style="margin:6px 0">
+        先「下载权重」再「加载显存」。多模型可同时常驻，显存不够时自动 LRU 驱逐。
+      </div>
+      <div class="mut" id="ecModelFiles" style="margin-bottom:8px">—</div>
+      <div id="ecModels"><span class="mut">选择实例后加载…</span></div>
+    </div>
+
+    <div class="card">
+      <b>运行参数</b>
+      <div class="row" style="margin:8px 0">
+        <span class="label">上下文</span>
+        <select id="ecCtx">
+          <option value="8192">8K</option>
+          <option value="32768" selected>32K</option>
+          <option value="65536">64K</option>
+          <option value="131072">128K</option>
+          <option value="262144">256K</option>
+        </select>
+        <button class="btn gray sm" id="btnEcCtx">应用</button>
+        <span class="label">API Key</span>
+        <input id="ecApiKey" placeholder="留空=免密开放" style="width:200px">
+        <button class="btn gray sm" id="btnEcApiKey">设置</button>
+      </div>
+      <div class="row">
+        <span class="label">ComfyUI</span>
+        <button class="btn gray sm" id="btnEcComfyStatus">状态</button>
+        <button class="btn green sm" id="btnEcComfyStart">启动</button>
+        <button class="btn gray sm" id="btnEcComfyStop">停止</button>
+      </div>
+      <pre class="out" id="ecRunOut" style="max-height:220px;overflow:auto;margin-top:8px"></pre>
+    </div>
+
+    <div class="card">
+      <b>在线生成（图像 / 视频 / 对话）</b>
+      <div class="mut" style="margin:6px 0">
+        目标模型必须是已加载进显存的模型。提交后自动轮询进度，完成后给出文件或文本结果。
+      </div>
+      <div class="row" style="margin:6px 0">
+        <span class="label">模型</span>
+        <select id="ecGenModel"><option value="">— 先加载模型 —</option></select>
+        <span class="label">任务</span>
+        <select id="ecGenMode">
+          <option value="t2i">文生图</option>
+          <option value="t2v">文生视频</option>
+          <option value="llm">对话 / 视觉理解</option>
+        </select>
+        <span class="label">步数</span>
+        <input id="ecGenSteps" value="35" style="width:70px">
+        <span class="label">种子</span>
+        <input id="ecGenSeed" value="42" style="width:80px">
+      </div>
+      <textarea id="ecGenPrompt" rows="3" style="width:100%;box-sizing:border-box" placeholder="提示词，例如：一只橘猫趴在窗台上看雨，柔和光线，浅景深"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn green" id="btnEcGen">提交生成</button>
+        <button class="btn gray sm" id="btnEcGenCancel">停止</button>
+        <span class="busy" id="ecGenBusy"></span>
+      </div>
+      <div class="bar" style="margin-top:8px"><i id="ecGenBar" style="width:0%"></i></div>
+      <div class="mut" id="ecGenMsg" style="margin:6px 0">—</div>
+      <div id="ecGenMedia" style="margin-top:8px"></div>
+      <pre class="out" id="ecGenOut" style="max-height:280px;overflow:auto"></pre>
+    </div>
+
+    <div class="card">
+      <b>OpenAI / Anthropic 兼容网关</b>
+      <div class="mut" style="margin:6px 0">
+        面板直接把 /v1/* 转发到实例上的模型服务。客户端 base_url 填下方地址即可，模型加载到显存后就能推理。
+      </div>
+      <div class="row">
+        <span class="label">Base URL</span>
+        <input id="ecV1Base" readonly style="flex:1;min-width:320px">
+        <button class="btn gray sm" id="btnEcV1Copy">复制</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <span class="label">模型列表</span>
+        <button class="btn gray sm" id="btnEcV1Models">拉取 /v1/models</button>
+      </div>
+      <pre class="out" id="ecV1Out" style="max-height:200px;overflow:auto;margin-top:8px"></pre>
+    </div>
+  </div>
+
+  <!-- 执行 / 文件 -->
+  <div class="pane" id="paneExec">
+    <div class="card">
+      <b>目标实例与硬件遥测</b>
+      <div class="row">
+        <select id="execSessSel"><option value="">— 先在实例页接管 —</option></select>
+        <button class="btn gray sm" id="btnReady">就绪探测</button>
+        <button class="btn gray sm" id="btnUrl">网页接入链接</button>
+        <button class="btn gray sm" id="btnRestart">重启内核</button>
+        <button class="btn gray sm" id="btnShm">扩容 /dev/shm</button>
+      </div>
+
+      <div class="grid2" style="margin-top:16px">
+        <div>
+          <div class="label" style="margin-bottom:4px">GPU 显存</div>
+          <div class="mut" id="telGpuName">—</div>
+          <div class="bar"><i id="telVram" style="width:0%"></i></div>
+          <div class="mut" id="telVramTxt">—</div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:4px">系统内存</div>
+          <div class="mut" id="telCpu">—</div>
+          <div class="bar"><i id="telRam" class="g" style="width:0%"></i></div>
+          <div class="mut" id="telRamTxt">—</div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:4px">磁盘 /content</div>
+          <div class="bar"><i id="telDisk" class="y" style="width:0%"></i></div>
+          <div class="mut" id="telDiskTxt">—</div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:4px">/dev/shm · Drive</div>
+          <div class="bar"><i id="telShm" class="y" style="width:0%"></i></div>
+          <div class="mut" id="telShmTxt">—</div>
+          <div class="mut" id="telDrive">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <b>执行 Python</b>
+      <textarea id="execCode" spellcheck="false">import sys, torch
+print("python", sys.version.split()[0])
+print("CUDA:", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))</textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn" id="btnExec">执行（阻塞）</button>
+        <button class="btn green" id="btnExecAsync">后台执行（实时输出）</button>
+        <button class="btn gray" id="btnPip">pip 安装</button>
+        <input id="pipPkgs" placeholder="包名，空格分隔" style="flex:1;min-width:160px">
+        <span class="busy" id="execBusy"></span>
+      </div>
+      <pre class="out" id="execOut" style="margin-top:8px">(输出)</pre>
+    </div>
+
+    <div class="card">
+      <b>远程文件</b>
+      <div class="row">
+        <input id="lsPath" value="content" style="flex:1;min-width:180px">
+        <button class="btn gray" id="btnLs">列出</button>
+        <label class="btn gray" style="cursor:pointer">上传<input type="file" id="fileUp" style="display:none"></label>
+        <input id="upDest" value="content/" placeholder="远端目录" style="width:150px">
+        <span class="busy" id="fileBusy"></span>
+      </div>
+      <div class="files" id="fileList"></div>
+      <pre class="out" id="fileOut" style="margin-top:8px;display:none"></pre>
+    </div>
+
+    <div class="card">
+      <b>Google Drive</b>
+      <div class="row">
+        <button class="btn gray" id="btnDriveRclone">免浏览器挂载（rclone）</button>
+        <button class="btn gray" id="btnDrive">交互式挂载</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 一次性任务 -->
+  <div class="pane" id="paneRun">
+    <div class="card">
+      <b>租实例跑脚本，跑完自动释放</b>
+      <div class="mut" style="margin-bottom:10px">适合一次性推理 / 训练片段。勾选「跑完保留」则实例留下可继续接管。</div>
+      <textarea id="runCode" spellcheck="false">print("hello from colab")</textarea>
+      <div class="row" style="margin-top:8px">
+        <select id="runGpu">
+          <option value="cpu">CPU</option>
+          <option value="t4">T4</option>
+          <option value="l4">L4</option>
+          <option value="a100">A100</option>
+          <option value="h100">H100</option>
+          <option value="g4">G4</option>
+        </select>
+        <label class="row" style="gap:4px"><input type="checkbox" id="runHighMem"> 大内存</label>
+        <label class="row" style="gap:4px"><input type="checkbox" id="runKeep"> 跑完保留</label>
+        <input id="runTimeout" type="number" value="120" style="width:90px"> <span class="mut">超时秒</span>
+        <button class="btn green" id="btnRun">运行</button>
+        <span class="busy" id="runBusy"></span>
+      </div>
+      <pre class="out" id="runOut" style="margin-top:8px">(输出)</pre>
+    </div>
+  </div>
+
+  <!-- 历史日志 -->
+  <div class="pane" id="paneLogs">
+    <div class="card">
+      <b>会话历史</b>
+      <div class="row" style="margin-bottom:10px">
+        <select id="logSess"><option value="">— 选择会话 —</option></select>
+        <input id="logLines" type="number" value="300" style="width:90px"> <span class="mut">行</span>
+        <button class="btn gray" id="btnLogs">查看</button>
+        <span class="busy" id="logBusy"></span>
+      </div>
+      <pre class="out" id="logOut" style="max-height:520px">(选择会话后查看)</pre>
+    </div>
+  </div>
+
+  <!-- 守护 -->
+  <div class="pane" id="paneGuard">
+    <div class="card">
+      <b>守护设置</b>
+      <div class="row">
+        <span class="label">闲置自动释放</span>
+        <select id="idleMin">
+          <option value="0">禁用</option>
+          <option value="15">15 分钟</option>
+          <option value="30">30 分钟</option>
+          <option value="60">60 分钟</option>
+          <option value="120">120 分钟</option>
+        </select>
+        <span class="label">保活心跳</span>
+        <select id="hbSec">
+          <option value="0">禁用</option>
+          <option value="120">2 分钟</option>
+          <option value="240">4 分钟</option>
+          <option value="600">10 分钟</option>
+        </select>
+        <button class="btn gray" id="btnSaveSettings">保存设置</button>
+        <button class="btn" id="btnBeatNow">立即保活</button>
+      </div>
+      <div class="mut" id="guardInfo" style="margin-top:8px">加载中…</div>
+    </div>
+    <div class="card">
+      <b>成本</b>
+      <div class="mut" style="margin-bottom:8px">按加速器燃烧速率 × 运行时长估算（CU）。</div>
+      <pre class="out" id="costOut">(加载中)</pre>
+    </div>
+  </div>
+</div>
+
+<script>
+const tok = localStorage.getItem("panel_token") || prompt("输入面板 API_TOKEN：") || "";
+if (tok) localStorage.setItem("panel_token", tok);
+const H = {"Authorization": "Bearer " + tok};
+let curSess = localStorage.getItem("panel_sess") || null;
+let sessNames = [];
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {...opts, headers: {...H, ...(opts.headers||{})}});
+  if (r.status === 401) { alert("Token 错误"); localStorage.removeItem("panel_token"); location.reload(); throw new Error("401"); }
+  const ct = r.headers.get("content-type") || "";
+  return ct.includes("json") ? r.json() : r.text();
+}
+const $ = id => document.getElementById(id);
+const show = (id, txt) => { const e=$(id); e.style.display="block"; e.textContent = typeof txt==="object"? JSON.stringify(txt,null,2) : txt; };
+
+// tabs
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("on"));
+  document.querySelectorAll(".pane").forEach(x => x.classList.remove("on"));
+  t.classList.add("on");
+  $(t.dataset.pane).classList.add("on");
+  if (t.dataset.pane === "paneModel") { startEcPoll(); }
+});
+
+const setSessHook = [];
+function setSess(n) {
+  curSess = n;
+  if (n) localStorage.setItem("panel_sess", n); else localStorage.removeItem("panel_sess");
+  syncSessSelects();
+  loadSessions(false);
+  setSessHook.forEach(fn => { try { fn(n); } catch (e) {} });
+}
+function syncSessSelects() {
+  const opts = sessNames.map(n => `<option value="${n}"${n===curSess?" selected":""}>${n}</option>`).join("");
+  const empty = `<option value="">${sessNames.length ? "— 选择实例 —" : "— 无活跃实例 —"}</option>`;
+  ["execSessSel","logSess","ecSessSel"].forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    el.innerHTML = empty + opts;
+    if (curSess && sessNames.includes(curSess)) el.value = curSess;
+  });
+}
+$("execSessSel").onchange = e => { if (e.target.value) setSess(e.target.value); else setSess(null); };
+
+async function loadStatus() {
+  $("statusBar").innerHTML = '<span class="mut">加载中…</span>';
+  const s = await api("/api/auth/status");
+  const bar = $("statusBar");
+  if (!s.logged_in) {
+    bar.innerHTML = '<span class="mut">未登录</span>';
+    $("loginCard").classList.remove("hidden");
+    $("btnLogout").classList.add("hidden");
+    return;
+  }
+  $("loginCard").classList.add("hidden");
+  $("btnLogout").classList.remove("hidden");
+  const hideEmail = $("privacyMode").checked;
+  const email = hideEmail ? (s.email ? s.email.replace(/(.{2}).*(@.*)/, "$1***$2") : "") : s.email;
+  bar.innerHTML = [
+    s.email ? `<span class="kv">账号 <b>${email}</b></span>` : "",
+    s.paid_balance !== undefined ? `<span class="kv">CU 余额 <b>${s.paid_balance}</b></span>` : "",
+    s.burn_rate_hourly !== undefined ? `<span class="kv">消耗速率 <b>${s.burn_rate_hourly}/h</b></span>` : "",
+    s.active_assignments !== undefined ? `<span class="kv">活跃实例 <b>${s.active_assignments}</b></span>` : "",
+    s.error ? `<span class="kv" style="color:var(--err)">${s.error}</span>` : "",
+  ].join("");
+}
+
+async function loadSettings() {
+  const st = await api("/api/settings");
+  $("idleMin").value = String(st.idle_timeout_minutes);
+  $("hbSec").value = String(st.heartbeat.interval_seconds);
+  const wd = st.watchdog, hb = st.heartbeat;
+  $("guardInfo").textContent =
+    `看门狗：已闲置 ${wd.idle_seconds}s${wd.triggered ? "（已触发释放）" : ""}${wd.last_action ? " · " + wd.last_action : ""}` +
+    ` ｜ 心跳：${hb.running ? `每 ${hb.interval_seconds}s` : "禁用"}${hb.last_run ? " · 上次 " + new Date(hb.last_run * 1000).toLocaleTimeString() + ` 触达 ${hb.touched} 个` : ""}${hb.last_error ? " · 错误 " + hb.last_error : ""}`;
+}
+async function loadCosts() {
+  const c = await api("/api/costs");
+  const list = c.sessions || [];
+  $("costOut").textContent = list.length
+    ? list.map(s => `${s.name}  ${s.accelerator}  ${s.burn_rate_per_hour}/h  已跑 ${s.elapsed_hours}h  估耗 ${s.estimated_cu} CU`).join("\n")
+    : "暂无会话";
+}
+
+$("btnSaveSettings").onclick = async () => {
+  await api("/api/settings", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({idle_timeout_minutes: +$("idleMin").value, heartbeat_interval_seconds: +$("hbSec").value})});
+  loadSettings();
+};
+$("btnBeatNow").onclick = async () => {
+  $("btnBeatNow").disabled = true; $("btnBeatNow").textContent = "保活中…";
+  try {
+    const r = await api("/api/heartbeat/now", {method: "POST"});
+    $("guardInfo").textContent = r.ok ? `手动保活完成，触达 ${r.touched} 个会话` : "保活失败: " + (r.error || "");
+    if (r.errors && r.errors.length) $("guardInfo").textContent += " · " + r.errors.map(e => e.session + ": " + e.error).join("; ");
+  } finally { $("btnBeatNow").disabled = false; $("btnBeatNow").textContent = "立即保活"; }
+};
+$("privacyMode").onchange = loadStatus;
+setInterval(() => { loadSettings().catch(()=>{}); }, 30000);
+
+$("btnAuthUrl").onclick = async () => {
+  const r = await api("/api/auth/url");
+  show("authOut", "请在浏览器打开以下链接完成授权：\n\n" + r.auth_url);
+  window.open(r.auth_url, "_blank");
+};
+$("btnAuthCode").onclick = async () => {
+  const code = $("authCode").value.trim();
+  if (!code) return alert("先粘贴授权码");
+  await api("/api/auth/code", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({code})});
+  await loadStatus();
+};
+$("btnLogout").onclick = async () => { if (confirm("解除绑定并清除本地凭证？")) { await api("/api/auth/logout", {method:"POST"}); loadStatus(); } };
+$("btnRefreshStatus").onclick = loadStatus;
+
+async function loadSessions(force) {
+  $("sessBusy").textContent = "加载中…";
+  try {
+    const r = await api("/api/sessions" + (force ? "?refresh=1" : ""));
+    $("sessOut").textContent = r.output || "(无输出)";
+    const list = $("sessList");
+    list.innerHTML = "";
+    const sessions = r.sessions || [];
+    sessNames = sessions.map(s => s.name);
+    $("sessCount").textContent = String(sessions.length);
+    if (!sessions.length) {
+      list.innerHTML = '<span class="mut">无活跃实例。上方可新建，或去「一次性任务」跑完自动释放。</span>';
+      syncSessSelects();
+      return;
+    }
+    for (const s of sessions) {
+      const div = document.createElement("div");
+      div.className = "sess" + (s.name === curSess ? " active" : "");
+      const cost = s.cost && s.cost.estimated_cu != null
+        ? ` · 已估耗 <b style="color:var(--acc)">${s.cost.estimated_cu} CU</b> (${s.cost.burn_rate_per_hour}/h)` : "";
+      const tags = (s.orphan ? '<span class="tag orphan">云端孤儿</span>' : '<span class="tag ok">已纳管</span>');
+      div.innerHTML = `<span class="name">${s.name}</span>${tags}<span class="meta">${s.hardware || s.accelerator}${s.shape ? " · " + s.shape : ""}${cost}</span>`;
+      const ops = document.createElement("div"); ops.className = "ops";
+      const mk = (t, cls, fn) => { const b=document.createElement("button"); b.className="btn sm "+cls; b.textContent=t; b.onclick=()=>fn(s); return b; };
+      if (!s.orphan) {
+        ops.appendChild(mk("接管","green", x=>{ setSess(x.name); document.querySelector('.tab[data-pane="paneExec"]').click(); }));
+      }
+      ops.appendChild(mk("释放","red", x=>releaseSess(x)));
+      div.appendChild(ops);
+      list.appendChild(div);
+    }
+    syncSessSelects();
+    loadCosts().catch(()=>{});
+  } finally { $("sessBusy").textContent = ""; }
+}
+$("btnRefreshSess").onclick = () => loadSessions(true);
+$("btnTelAll").onclick = async () => {
+  $("sessBusy").textContent = "采样中…（每个实例一次 exec）";
+  try {
+    const r = await api("/api/telemetry/all?force=1");
+    $("telAllWrap").classList.remove("hidden");
+    const items = r.items || [];
+    if (!items.length) { $("telAllOut").innerHTML = '<span class="mut">无活跃实例</span>'; return; }
+    $("telAllOut").innerHTML = items.map(t => {
+      if (!t.ok) return `<div class="sess"><span class="name">${t.name}</span><span class="meta">采样失败：${(t.error||"").slice(0,90)}</span></div>`;
+      const vram = t.vram_total_gb ? `${fmtGB(t.vram_used_gb)} / ${fmtGB(t.vram_total_gb)}` : "无 GPU";
+      return `<div class="sess"><span class="name">${t.name}</span><span class="tag ok">${t.gpu_name}</span>
+        <span class="meta">显存 ${vram} · 内存 ${fmtGB(t.ram_used_gb)}/${fmtGB(t.ram_total_gb)} · 磁盘 ${fmtGB(t.disk_used_gb)}/${fmtGB(t.disk_total_gb)} · shm ${fmtGB(t.shm_total_gb)} · ${t.cpu_count||"?"} 核 load ${t.loadavg_1m ?? "—"}</span></div>`;
+    }).join("");
+  } finally { $("sessBusy").textContent = ""; }
+};
+
+$("btnNew").onclick = async () => {
+  $("btnNew").disabled = true; $("btnNew").textContent = "分配/复用中…(最长 5 分钟)";
+  $("sessBusy").textContent = "分配中，请等待…";
+  try {
+    const body = {gpu: $("gpuType").value, high_mem: $("highMem").checked, name: $("newName").value.trim(), reuse: $("reuseChk").checked};
+    const r = await api("/api/sessions", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    let msg = r.output || JSON.stringify(r);
+    if (r.ok) {
+      msg = `${r.reused ? "♻️ 复用" : "🆕 新建"}实例 ${r.name}` +
+            (r.adopted_orphan ? "（纳管云端孤儿实例）" : "") +
+            (r.ready === true ? " · 内核已就绪" : r.ready === false ? " · 内核未就绪（可稍后就绪探测）" : "") +
+            "\n" + msg;
+    }
+    show("sessOut", msg);
+    await loadSessions(true);
+    if (r.ok && r.name && !r.reused) setSess(r.name);
+  } finally { $("btnNew").disabled = false; $("btnNew").textContent = "新建/复用"; $("sessBusy").textContent = ""; }
+};
+
+$("btnStopAll").onclick = async () => {
+  if (!confirm("释放账号下【全部】实例（含孤儿）？将停止 CU 计费")) return;
+  $("sessBusy").textContent = "释放中…";
+  try {
+    const r = await api("/api/stop-all", {method:"POST"});
+    show("sessOut", JSON.stringify(r, null, 2));
+    setSess(null);
+    loadSessions(true); loadStatus();
+  } finally { $("sessBusy").textContent = ""; }
+};
+
+async function releaseSess(s) {
+  const label = s.orphan ? `云端孤儿 ${s.endpoint}？` : `实例 ${s.name}？`;
+  if (!confirm("释放 " + label)) return;
+  if (s.orphan) {
+    const r = await api(`/api/assignments/${encodeURIComponent(s.endpoint)}/release`, {method:"POST"});
+    show("sessOut", JSON.stringify(r));
+  } else {
+    const r = await api(`/api/sessions/${encodeURIComponent(s.name)}`, {method:"DELETE"});
+    show("sessOut", r.output || JSON.stringify(r));
+  }
+  if (!s.orphan && s.name === curSess) setSess(null);
+  loadSessions(true);
+}
+
+function needSess() { if (!curSess) { alert("先在「实例」页接管一个实例"); return false; } return true; }
+
+$("btnExec").onclick = async () => {
+  if (!needSess()) return;
+  $("btnExec").disabled = true; $("execBusy").textContent = "执行中…";
+  $("execOut").textContent = "";
+  try {
+    const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/exec`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({code: $("execCode").value})});
+    $("execOut").textContent = r.output || "(无输出)";
+  } finally { $("btnExec").disabled = false; $("execBusy").textContent = ""; }
+};
+
+// 后台任务 + 实时控制台：提交后每 1.2s 拉增量行
+let jobPoll = null;
+function stopJobPoll() { if (jobPoll) { clearInterval(jobPoll); jobPoll = null; } }
+$("btnExecAsync").onclick = async () => {
+  if (!needSess()) return;
+  const sub = await api(`/api/sessions/${encodeURIComponent(curSess)}/exec-async`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({code: $("execCode").value})});
+  if (!sub.job_id) return alert("提交失败");
+  $("execOut").textContent = `[job ${sub.job_id}] 已提交，实时输出如下…\n`;
+  $("execBusy").textContent = "运行中…";
+  let cursor = 0;
+  stopJobPoll();
+  jobPoll = setInterval(async () => {
+    try {
+      const j = await api(`/api/jobs/${sub.job_id}?from_line=${cursor}`);
+      if (j.lines && j.lines.length) {
+        $("execOut").textContent += j.lines.join("\n") + "\n";
+        cursor = j.next_line;
+        $("execOut").scrollTop = $("execOut").scrollHeight;
+      }
+      if (j.status !== "running") {
+        stopJobPoll();
+        $("execBusy").textContent = "";
+        $("execOut").textContent += `\n[${j.status} · 耗时 ${j.elapsed}s · rc=${j.returncode}]`;
+        $("execOut").scrollTop = $("execOut").scrollHeight;
+      }
+    } catch (e) { stopJobPoll(); $("execBusy").textContent = ""; }
+  }, 1200);
+};
+
+// 硬件遥测：跟随当前实例，8s 刷新
+let telTimer = null;
+function fmtGB(v) { return (v == null ? "—" : v.toFixed(1) + " GB"); }
+function setBar(id, used, total) {
+  const pct = (total && total > 0) ? Math.min(100, Math.round(used / total * 100)) : 0;
+  $(id).style.width = pct + "%";
+  return pct;
+}
+async function loadTelemetry(force) {
+  if (!curSess) {
+    ["telGpuName","telVramTxt","telCpu","telRamTxt","telDiskTxt","telShmTxt","telDrive"].forEach(i => $(i).textContent = "—");
+    ["telVram","telRam","telDisk","telShm"].forEach(i => $(i).style.width = "0%");
+    return;
+  }
+  try {
+    const t = await api(`/api/sessions/${encodeURIComponent(curSess)}/telemetry` + (force ? "?force=1" : ""));
+    if (!t.ok) { $("telGpuName").textContent = "遥测失败: " + (t.error || "").slice(0, 80); return; }
+    $("telGpuName").textContent = t.gpu_name + (t.cuda_available ? "" : "（无 GPU）");
+    setBar("telVram", t.vram_used_gb || 0, t.vram_total_gb || 0);
+    $("telVramTxt").textContent = t.vram_total_gb ? `${fmtGB(t.vram_used_gb)} / ${fmtGB(t.vram_total_gb)}` : "—";
+    $("telCpu").textContent = t.cpu_count ? `${t.cpu_count} 核 · load ${t.loadavg_1m ?? "—"} / ${t.loadavg_5m ?? "—"}` : "—";
+    setBar("telRam", t.ram_used_gb || 0, t.ram_total_gb || 0);
+    $("telRamTxt").textContent = t.ram_total_gb ? `${fmtGB(t.ram_used_gb)} / ${fmtGB(t.ram_total_gb)}` : "—";
+    setBar("telDisk", t.disk_used_gb || 0, t.disk_total_gb || 0);
+    $("telDiskTxt").textContent = t.disk_total_gb ? `${fmtGB(t.disk_used_gb)} / ${fmtGB(t.disk_total_gb)}（剩 ${fmtGB(t.disk_free_gb)}）` : "—";
+    setBar("telShm", t.shm_used_gb || 0, t.shm_total_gb || 0);
+    $("telShmTxt").textContent = t.shm_total_gb ? `shm ${fmtGB(t.shm_used_gb)} / ${fmtGB(t.shm_total_gb)}` : "—";
+    $("telDrive").textContent = t.drive_total_gb ? `Drive ${fmtGB(t.drive_used_gb)} / ${fmtGB(t.drive_total_gb)}` : "Drive 未挂载";
+  } catch (e) { /* 静默 */ }
+}
+function startTelLoop() {
+  if (telTimer) clearInterval(telTimer);
+  telTimer = setInterval(() => { if (curSess) loadTelemetry(false); }, 8000);
+}
+startTelLoop();
+setSessHook.push((n) => { loadTelemetry(true); });
+$("btnPip").onclick = async () => {
+  if (!needSess()) return;
+  const pkgs = $("pipPkgs").value.trim();
+  if (!pkgs) return alert("填写包名");
+  $("execBusy").textContent = "安装中…";
+  try {
+    const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/install`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({packages: pkgs.split(/\s+/)})});
+    $("execOut").textContent = r.output || JSON.stringify(r);
+  } finally { $("execBusy").textContent = ""; }
+};
+$("btnUrl").onclick = async () => {
+  if (!needSess()) return;
+  const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/web-url`);
+  $("execOut").textContent = r.url ? "浏览器打开此链接接入该实例网页端：\n" + r.url : (r.output || "生成失败");
+  if (r.url) window.open(r.url, "_blank");
+};
+$("btnRestart").onclick = async () => {
+  if (!needSess()) return;
+  const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/restart-kernel`, {method:"POST"});
+  show("execOut", r.output || JSON.stringify(r));
+};
+$("btnShm").onclick = async () => {
+  if (!needSess()) return;
+  $("execBusy").textContent = "扩容中…";
+  try {
+    const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/shm-expand`, {method:"POST"});
+    show("execOut", r);
+    loadTelemetry(true);
+  } finally { $("execBusy").textContent = ""; }
+};
+$("btnReady").onclick = async () => {
+  if (!needSess()) return;
+  $("execBusy").textContent = "探测中…";
+  try {
+    const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/ready`, {method:"POST"});
+    $("execOut").textContent = r.ready ? "✅ 内核就绪" : `❌ 未就绪（状态: ${r.state}）${r.detail ? " · " + r.detail : ""}`;
+  } finally { $("execBusy").textContent = ""; }
+};
+
+async function loadFiles() {
+  if (!needSess()) return;
+  $("fileBusy").textContent = "读取中…";
+  try {
+    const p = $("lsPath").value.trim() || "content";
+    const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/ls?path=${encodeURIComponent(p)}`);
+    const box = $("fileList"); box.innerHTML = "";
+    const entries = r.entries || [];
+    if (!entries.length) box.innerHTML = '<span class="mut">空目录或无法解析</span>';
+    for (const line of entries) {
+      const div = document.createElement("div"); div.className = "frow";
+      const span = document.createElement("span"); span.className = "fname"; span.textContent = line;
+      const join = p.endsWith("/") ? p : p + "/";
+      const dl = document.createElement("button"); dl.className = "btn sm gray"; dl.textContent = "下载";
+      dl.onclick = () => {
+        const rp = join + line.split(/\s+/).pop().replace(/\/$/, "");
+        const url = `/api/sessions/${encodeURIComponent(curSess)}/download?remote_path=${encodeURIComponent(rp)}&token=${encodeURIComponent(tok)}`;
+        window.open(url, "_blank");
+      };
+      const rm = document.createElement("button"); rm.className = "btn sm red"; rm.textContent = "删除";
+      rm.onclick = async () => {
+        if (!confirm("删除远端 " + join + line + " ?")) return;
+        const rr = await api(`/api/sessions/${encodeURIComponent(curSess)}/rm`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({path: (join + line.split(/\s+/).pop()).replace(/\/$/, "")})});
+        $("fileOut").style.display = "block"; $("fileOut").textContent = rr.output || JSON.stringify(rr);
+        loadFiles();
+      };
+      div.append(span, dl, rm);
+      box.appendChild(div);
+    }
+    if (r.ok === false) { $("fileOut").style.display = "block"; $("fileOut").textContent = r.output || ""; }
+  } finally { $("fileBusy").textContent = ""; }
+}
+$("btnLs").onclick = loadFiles;
+$("fileUp").onchange = async e => {
+  if (!needSess()) return;
+  const f = e.target.files[0]; if (!f) return;
+  $("fileBusy").textContent = "上传中…";
+  try {
+    const fd = new FormData(); fd.append("file", f);
+    const r = await fetch(`/api/sessions/${encodeURIComponent(curSess)}/upload?remote_path=${encodeURIComponent($("upDest").value || "content/")}`,
+      {method:"POST", headers: H, body: fd}).then(x => x.json());
+    $("fileOut").style.display = "block"; $("fileOut").textContent = JSON.stringify(r, null, 2);
+    loadFiles();
+  } finally { $("fileBusy").textContent = ""; e.target.value = ""; }
+};
+
+$("btnDriveRclone").onclick = async () => {
+  if (!needSess()) return;
+  $("execBusy").textContent = "免浏览器挂载中（安装 rclone + FUSE，约 1~2 分钟）…";
+  try {
+    const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/drivemount-rclone`, {method:"POST"});
+    $("execOut").textContent = (r.mounted ? "✅ 已挂载到 /content/drive/MyDrive\n"
+      : r.fuse_unavailable ? "⚠️ VM 无 FUSE 权限，可改用 rclone copy/sync\n"
+      : "❌ 失败\n") + (r.detail || "") + "\n\n" + (r.output || "");
+  } finally { $("execBusy").textContent = ""; }
+};
+$("btnDrive").onclick = async () => {
+  if (!needSess()) return;
+  $("execBusy").textContent = "挂载中…";
+  try {
+    const r = await api(`/api/sessions/${encodeURIComponent(curSess)}/drivemount`, {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
+    show("execOut", r.output);
+  } finally { $("execBusy").textContent = ""; }
+};
+
+$("btnRun").onclick = async () => {
+  $("btnRun").disabled = true; $("runBusy").textContent = "租实例并运行中…";
+  $("runOut").textContent = "";
+  try {
+    const r = await api("/api/run", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({code: $("runCode").value, gpu: $("runGpu").value,
+        high_mem: $("runHighMem").checked, keep: $("runKeep").checked,
+        timeout: +$("runTimeout").value})});
+    $("runOut").textContent = (r.ok ? "✅ 完成" : "❌ 失败") + (r.kept && r.name ? ` · 保留实例 ${r.name}` : "") + "\n\n" + (r.output || "");
+    if (r.kept) loadSessions(true);
+  } finally { $("btnRun").disabled = false; $("runBusy").textContent = ""; }
+};
+
+$("btnLogs").onclick = async () => {
+  const s = $("logSess").value;
+  if (!s) return alert("选择会话");
+  $("logBusy").textContent = "读取中…";
+  try {
+    const r = await api(`/api/logs/${encodeURIComponent(s)}?lines=${+$("logLines").value || 300}`);
+    $("logOut").textContent = r.output || "(无记录)";
+  } finally { $("logBusy").textContent = ""; }
+};
+
+// ---------------------------------------------------------------------------
+// 模型工作台：EasyColab 服务端部署 + 模型管理
+// ---------------------------------------------------------------------------
+let ecSess = "";
+let ecModelsCache = [];
+let ecPollTimer = null;
+function ecResolve() { ecSess = ecSess || $("ecSessSel").value || curSess; return ecSess || ""; }
+function ecNeed() { const s = ecResolve(); if (!s) { alert("先在实例页建/接管一个实例"); return ""; } return s; }
+$("ecSessSel").onchange = e => { ecSess = e.target.value; startEcPoll(); };
+
+async function loadEcModels() {
+  const r = await api("/api/easycolab/models");
+  ecModelsCache = r.models || [];
+  $("ecModelCount").textContent = String(ecModelsCache.length);
+  $("ecModels").innerHTML = ecModelsCache.map(m => `
+    <div class="sess" data-model="${m.id}">
+      <span class="name">${m.name}</span>
+      <span class="tag ok">${m.modality}</span>
+      <span class="meta">${m.size_gb} GB 权重 · 需 ~${m.vram_gb} GB 显存 · ${m.desc}</span>
+      <div class="ops">
+        <button class="btn gray sm" data-dl="${m.id}">下载权重</button>
+        <button class="btn green sm" data-load="${m.id}">加载显存</button>
+        <button class="btn gray sm" data-unload="${m.id}">卸载</button>
+      </div>
+      <div class="meta ec-state" data-state="${m.id}">—</div>
+    </div>`).join("");
+  $("ecModels").querySelectorAll("[data-dl]").forEach(b => b.onclick = () => ecAction("/api/easycolab/download-model", {model_id: b.dataset.dl}, "下载中…"));
+  $("ecModels").querySelectorAll("[data-load]").forEach(b => b.onclick = () => ecAction("/api/easycolab/load-model", {model_id: b.dataset.load}, "加载显存中…"));
+  $("ecModels").querySelectorAll("[data-unload]").forEach(b => b.onclick = () => ecAction("/api/easycolab/unload-model", {model_id: b.dataset.unload}, "卸载中…"));
+}
+
+function ecRenderStates(st) {
+  const loaded = new Set(st.loaded_model_ids || []);
+  const selected = st.loaded_model_id || null;
+  const sel = $("ecGenModel");
+  if (sel) {
+    const keep = sel.value;
+    sel.innerHTML = `<option value="">— 先加载模型 —</option>` +
+      [...loaded].map(id => {
+        const m = ecModelsCache.find(x => x.id === id);
+        return `<option value="${id}">${m ? m.name : id}</option>`;
+      }).join("");
+    if (keep && loaded.has(keep)) sel.value = keep;
+    else if (selected && loaded.has(selected)) sel.value = selected;
+  }
+  ecModelsCache.forEach(m => {
+    const el = $("ecModels").querySelector(`[data-state="${m.id}"]`);
+    if (!el) return;
+    const bits = [];
+    if (loaded.has(m.id)) bits.push("✅ 已加载显存");
+    if (m.id === selected) {
+      const d = (st.loaded_models_detail || []).find(x => x.id === m.id);
+      bits.push(`当前选中${d && d.context_length ? " · " + (d.context_length/1024) + "K 上下文" : ""}${d ? " · " + d.vram_gb + " GB" : ""}`);
+    }
+    if (st.is_downloading && m.id === selected) bits.push(`下载 ${Math.round((st.task_progress||0)*100)}% ${st.task_message||""}`);
+    if (st.is_loading_vram && m.id === selected) bits.push(`加载 ${Math.round((st.task_progress||0)*100)}% ${st.task_message||""}`);
+    if (bits.length) { el.classList.remove("mut"); el.textContent = bits.join(" · "); }
+    else { el.classList.add("mut"); el.textContent = "—"; }
+  });
+  if (st.files && st.total_count) {
+    $("ecModelFiles").textContent =
+      `${st.selected_model_name || ""} 权重就绪 ${st.downloaded_count}/${st.total_count} 个文件 (${(st.total_size_gb||0).toFixed(2)} GB)`;
+  }
+}
+
+async function ecAction(path, body, busy) {
+  const s = ecNeed(); if (!s) return;
+  $("ecBusy").textContent = busy || "执行中…";
+  try {
+    const r = await api(`${path}?name=${encodeURIComponent(s)}`, {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    $("ecRunOut").textContent = JSON.stringify(r, null, 2);
+  } catch (e) {
+    $("ecRunOut").textContent = "请求失败: " + e.message;
+  } finally { $("ecBusy").textContent = ""; }
+}
+
+async function loadEcStatus() {
+  const s = ecNeed(); if (!s) return;
+  try {
+    const r = await api(`/api/easycolab/status?name=${encodeURIComponent(s)}`);
+    if (!r.deployed) { $("ecUrlRow").style.display = "none"; $("ecOut").textContent = "尚未部署 EasyColab 服务端"; return; }
+    $("ecUrlRow").style.display = "flex";
+    $("ecUrl").value = r.gradio_url || "";
+    const st = r.remote || {};
+    if (r.reachable === false) { $("ecOut").textContent = "服务不可达: " + (r.error || ""); return; }
+    $("ecOut").textContent = [
+      `当前模型: ${st.current_model || "未加载"}`,
+      `已加载: ${(st.loaded_models_detail || []).map(x => x.name + (x.context_length ? ` (${x.context_length/1024}K)` : "")).join(", ") || "无"}`,
+      `显存: ${st.vram_used_gb ?? "—"} / ${st.vram_total_gb ?? "—"} GB  ·  GPU: ${st.gpu_name || "—"}`,
+      `上下文: ${st.context_length ? st.context_length/1024 + "K" : "—"}  ·  闲置超时: ${st.idle_timeout_minutes ?? "—"} 分钟 (剩 ${Math.round((st.idle_remaining_seconds??0)/60)} 分)`,
+      `CU: ${st.cu_burn_rate_per_hour ?? "—"}/h  ·  已用 ${st.session_cu_used ?? 0} CU  ·  运行 ${Math.round((st.uptime_seconds||0)/60)} 分`,
+      `任务: ${st.is_downloading ? "下载中 " + Math.round((st.task_progress||0)*100) + "% " + (st.task_message||"") : st.is_loading_vram ? "加载中 " + Math.round((st.task_progress||0)*100) + "% " + (st.task_message||"") : "空闲"}`,
+      ...(st.console_lines || []).slice(-6),
+    ].filter(Boolean).join("\n");
+    ecRenderStates(st);
+  } catch (e) { /* 静默 */ }
+}
+
+$("btnEcDeploy").onclick = async () => {
+  const s = ecNeed(); if (!s) return;
+  $("btnEcDeploy").disabled = true;
+  $("ecBusy").textContent = "部署中…（首次可能 3~10 分钟）";
+  $("ecOut").textContent = "上传 app.py 并启动，请稍候…";
+  try {
+    const r = await api(`/api/easycolab/deploy?name=${encodeURIComponent(s)}`, {method:"POST"});
+    $("ecOut").textContent = (r.ok ? "✅ 部署成功\n" : "❌ 部署失败\n") + (r.gradio_url || "") + "\n\n" + (r.output || r.error || "");
+    if (r.ok) { $("ecUrlRow").style.display = "flex"; $("ecUrl").value = r.gradio_url || ""; loadEcStatus(); }
+  } catch (e) { $("ecOut").textContent = "部署请求失败: " + e.message; }
+  finally { $("btnEcDeploy").disabled = false; $("ecBusy").textContent = ""; }
+};
+$("btnEcStop").onclick = async () => {
+  const s = ecNeed(); if (!s) return;
+  $("ecBusy").textContent = "停止中…";
+  try {
+    const r = await api(`/api/easycolab/stop?name=${encodeURIComponent(s)}`, {method:"POST"});
+    $("ecOut").textContent = r.output || JSON.stringify(r);
+    $("ecUrlRow").style.display = "none";
+  } finally { $("ecBusy").textContent = ""; }
+};
+$("btnEcStatus").onclick = () => { loadEcStatus(); loadEcModels(); };
+
+function startEcPoll() {
+  if (ecPollTimer) clearInterval(ecPollTimer);
+  ecPollTimer = null;
+  $("ecV1Base").value = ecV1Base();
+  if (!ecResolve()) { $("ecOut").textContent = "尚未选择实例（先在实例页新建或接管）"; return; }
+  loadEcModels().catch(()=>{});
+  loadEcStatus().catch(()=>{});
+  ecPollTimer = setInterval(() => {
+    const on = $("paneModel").classList.contains("on");
+    if (!on) { clearInterval(ecPollTimer); ecPollTimer = null; return; }
+    if (!ecResolve()) return;
+    loadEcStatus().catch(()=>{});
+  }, 6000);
+}
+$("btnEcOpen").onclick = () => { if ($("ecUrl").value) window.open($("ecUrl").value, "_blank"); };
+$("btnEcCopy").onclick = () => { navigator.clipboard && navigator.clipboard.writeText($("ecUrl").value); };
+$("btnEcCtx").onclick = () => ecAction("/api/easycolab/config", {context_length: +$("ecCtx").value}, "应用上下文…");
+$("btnEcApiKey").onclick = () => ecAction("/api/easycolab/config", {api_key: $("ecApiKey").value}, "设置 API Key…");
+$("btnEcComfyStatus").onclick = async () => {
+  const s = ecNeed(); if (!s) return;
+  $("ecRunOut").textContent = JSON.stringify(await api(`/api/easycolab/comfyui?name=${encodeURIComponent(s)}`), null, 2);
+};
+$("btnEcComfyStart").onclick = () => ecAction("/api/easycolab/comfyui/start", {}, "启动 ComfyUI…");
+$("btnEcComfyStop").onclick = () => ecAction("/api/easycolab/comfyui/stop", {}, "停止 ComfyUI…");
+
+function ecV1Base() {
+  const s = ecResolve();
+  return s ? location.origin + "/v1?name=" + encodeURIComponent(s) : location.origin + "/v1";
+}
+$("btnEcV1Copy").onclick = () => {
+  $("ecV1Base").value = ecV1Base();
+  navigator.clipboard && navigator.clipboard.writeText($("ecV1Base").value);
+};
+
+// 生成任务：提交 → 轮询 job → 渲染媒体
+let ecGenTimer = null;
+function ecStopGenPoll() { if (ecGenTimer) { clearInterval(ecGenTimer); ecGenTimer = null; } }
+
+function ecRenderJob(j) {
+  $("ecGenBar").style.width = Math.round((j.progress || 0) * 100) + "%";
+  $("ecGenMsg").textContent = `${j.status || ""} · ${Math.round((j.progress||0)*100)}% · ${j.message || ""}`;
+  const media = $("ecGenMedia");
+  const bits = [];
+  if (j.video_url) bits.push(`<video src="${j.video_url}" controls style="max-width:100%;border-radius:8px"></video>`);
+  if (Array.isArray(j.images)) j.images.forEach(u => bits.push(`<img src="${u}" style="max-width:100%;border-radius:8px;margin-top:8px">`));
+  if (j.image_url) bits.push(`<img src="${j.image_url}" style="max-width:100%;border-radius:8px">`);
+  if (Array.isArray(j.completed_videos)) j.completed_videos.forEach(v => {
+    const u = typeof v === "string" ? v : (v && (v.video_url || v.url));
+    if (u) bits.push(`<video src="${u}" controls style="max-width:100%;border-radius:8px;margin-top:8px"></video>`);
+  });
+  media.innerHTML = bits.join("");
+  $("ecGenOut").textContent = (j.text_output || "") + (j.thinking_output ? "\n\n--- 思考链 ---\n" + j.thinking_output : "");
+}
+
+async function ecPollGen(name, jobId) {
+  ecStopGenPoll();
+  const tick = async () => {
+    try {
+      const j = await api(`/api/easycolab/job/${encodeURIComponent(jobId)}?name=${encodeURIComponent(name)}`);
+      ecRenderJob(j);
+      if (["completed", "failed", "success"].includes(j.status)) {
+        ecStopGenPoll();
+        $("ecGenBusy").textContent = "";
+        $("btnEcGen").disabled = false;
+      }
+    } catch (e) {
+      ecStopGenPoll();
+      $("ecGenMsg").textContent = "轮询失败: " + e.message;
+      $("ecGenBusy").textContent = "";
+      $("btnEcGen").disabled = false;
+    }
+  };
+  await tick();
+  if (!ecGenTimer && $("ecGenBusy").textContent) ecGenTimer = setInterval(tick, 1500);
+}
+
+$("btnEcGen").onclick = async () => {
+  const s = ecNeed(); if (!s) return;
+  const modelId = $("ecGenModel").value;
+  if (!modelId) { alert("先把模型加载进显存"); return; }
+  const mode = $("ecGenMode").value;
+  const prompt = $("ecGenPrompt").value.trim();
+  if (!prompt) { alert("提示词不能为空"); return; }
+  const body = {
+    model_id: modelId,
+    visual_prompt: prompt,
+    num_inference_steps: +$("ecGenSteps").value || 35,
+    seed: +$("ecGenSeed").value || 42,
+  };
+  if (mode === "llm") { body.chat_messages = [{role: "user", content: prompt}]; body.task_mode = "chat"; }
+  else if (mode === "t2i") body.task_mode = "t2i";
+  else body.task_mode = "t2va";
+
+  $("btnEcGen").disabled = true;
+  $("ecGenBusy").textContent = "提交中…";
+  $("ecGenMedia").innerHTML = "";
+  $("ecGenOut").textContent = "";
+  try {
+    const j = await api(`/api/easycolab/generate?name=${encodeURIComponent(s)}`,
+      {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+    ecRenderJob(j);
+    if (!j.job_id || j.job_id === "none") {
+      $("ecGenBusy").textContent = "";
+      $("btnEcGen").disabled = false;
+      return;
+    }
+    $("ecGenBusy").textContent = "生成中…";
+    ecPollGen(s, j.job_id);
+  } catch (e) {
+    $("ecGenMsg").textContent = "提交失败: " + e.message;
+    $("ecGenBusy").textContent = "";
+    $("btnEcGen").disabled = false;
+  }
+};
+$("btnEcGenCancel").onclick = async () => {
+  const s = ecNeed(); if (!s) return;
+  ecStopGenPoll();
+  try {
+    const r = await api(`/api/easycolab/cancel?name=${encodeURIComponent(s)}`, {method:"POST"});
+    $("ecGenMsg").textContent = "已请求停止 · " + (r && r.message ? r.message : "");
+  } catch (e) { $("ecGenMsg").textContent = "停止失败: " + e.message; }
+  $("ecGenBusy").textContent = "";
+  $("btnEcGen").disabled = false;
+};
+$("btnEcV1Models").onclick = async () => {
+  const s = ecNeed(); if (!s) return;
+  $("ecV1Out").textContent = "拉取中…";
+  try {
+    const r = await api(`/v1/models?name=${encodeURIComponent(s)}`);
+    $("ecV1Out").textContent = JSON.stringify(r, null, 2);
+  } catch (e) { $("ecV1Out").textContent = "失败: " + e.message; }
+};
+setSessHook.push(() => { ecSess = ""; const b = $("ecV1Base"); if (b) b.value = ecV1Base(); });
+
+// init
+(async () => {
+  await loadStatus();
+  await loadSettings().catch(()=>{});
+  await loadSessions(false).catch(()=>{});
+  loadCosts().catch(()=>{});
+})();
+</script>
+</body>
+</html>

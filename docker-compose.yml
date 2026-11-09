@@ -1,0 +1,15 @@
+services:
+  colab-panel:
+    build: .
+    container_name: colab-panel
+    ports: ["8080:8080"]
+    # API_TOKEN 可选：不设置则自动生成随机口令（落在 data 卷，容器重启不变）
+    # 查看方式：docker exec colab-panel cat /data/.config/colab-cli/panel_api_token
+    environment: []
+    volumes:
+      # OAuth 凭证 / 会话表 / 面板口令都在这里，必须持久化
+      - ${PANEL_DATA_DIR:-./data}:/data
+      # 可选：模型工作台需要 EasyColab 服务端源码（app.py）。
+      # 不提供也能跑，只是「模型工作台」tab 会提示找不到 app.py。
+      - ${EASYCOLAB_SRC_DIR:-../easycolab}:/opt/easycolab:ro
+    restart: unless-stopped
