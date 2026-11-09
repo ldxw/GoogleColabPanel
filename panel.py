@@ -22,6 +22,7 @@ import sys
 import threading
 import time
 import uuid
+from urllib.parse import quote
 
 import requests
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
@@ -1845,10 +1846,27 @@ _EASYCOLAB_MODELS = [
 
 
 @app.get("/api/easycolab/models")
-def api_easycolab_models(request: Request):
-    """可用模型清单 + 各型号显存需求（静态表，来自 app.py MODEL_CATALOG）。"""
+def api_easycolab_models(request: Request, name: str = ""):
+    """可用模型清单 + 各型号显存需求。部署了服务端时并入远端自定义 GGUF 模型。"""
     check_auth(request)
-    return {"ok": True, "models": _EASYCOLAB_MODELS}
+    models = list(_EASYCOLAB_MODELS)
+    if name and easycolab_url(name):
+        try:
+            remote = _easycolab_api(name, "/minimax_api/model_catalog", timeout=15)
+            for m in remote.get("models") or []:
+                if not m.get("is_custom"):
+                    continue
+                models.append({
+                    "id": m["id"], "name": m.get("name") or m["id"],
+                    "size_gb": m.get("approx_size_gb") or 0.0,
+                    "modality": m.get("modality") or "llm",
+                    "vram_gb": m.get("vram_gb") or m.get("approx_size_gb") or 0.0,
+                    "desc": m.get("category") or "",
+                    "is_custom": True,
+                })
+        except HTTPException:
+            pass
+    return {"ok": True, "models": models}
 
 
 @app.get("/api/easycolab/status")
@@ -1972,13 +1990,27 @@ async def api_easycolab_load(name: str, request: Request):
     except HTTPException:
         st = {}
     if isinstance(st, dict) and st.get("ok"):
-        if not st.get("cuda_available"):
+        # GGUF 走 llama.cpp，能在纯 CPU 实例上跑；其余模型必须常驻显卡
+        is_gguf = False
+        if model_id:
+            try:
+                cat = _easycolab_api(name, "/minimax_api/model_catalog", timeout=25)
+                is_gguf = any(
+                    m.get("id") == model_id and m.get("backend") == "gguf"
+                    for m in (cat or {}).get("models") or []
+                )
+            except HTTPException:
+                is_gguf = False
+        if not st.get("cuda_available") and not is_gguf:
             raise HTTPException(
                 status_code=409,
                 detail=f"实例 {name} 没有 GPU（{st.get('gpu_name') or 'CPU Mode'}），"
-                       f"模型无法加载进显存。请新建 T4/L4/A100/H100/G4 实例后再部署。",
+                       f"该模型需要显卡常驻。请新建 T4/L4/A100/H100/G4 实例；"
+                       f"GGUF 量化模型可直接在 CPU 实例上运行。",
             )
-        need = next((m["vram_gb"] for m in _EASYCOLAB_MODELS if m["id"] == model_id), None)
+        need = None
+        if not is_gguf:
+            need = next((m["vram_gb"] for m in _EASYCOLAB_MODELS if m["id"] == model_id), None)
         total = float(st.get("vram_total_gb") or 0)
         if need and total and need > total:
             raise HTTPException(
@@ -2027,6 +2059,69 @@ async def api_easycolab_config(name: str, request: Request):
     if not out:
         raise HTTPException(status_code=400, detail="需要 context_length / idle_timeout_minutes / api_key 之一")
     return {"ok": True, **out}
+
+
+@app.get("/api/easycolab/model-catalog")
+def api_easycolab_model_catalog(request: Request, name: str):
+    """远端完整模型清单（内置 + 自定义 GGUF），含下载/加载状态。未部署时回静态表。"""
+    check_auth(request)
+    if not name:
+        raise HTTPException(status_code=400, detail="需要 name 参数指定实例")
+    if not easycolab_url(name):
+        return {"ok": True, "deployed": False, "models": _EASYCOLAB_MODELS}
+    remote = _easycolab_api(name, "/minimax_api/model_catalog", timeout=25)
+    out = dict(remote or {})
+    out["deployed"] = True
+    out["name"] = name
+    return out
+
+
+@app.get("/api/easycolab/hf-files")
+def api_easycolab_hf_files(request: Request, name: str, repo: str, hf_token: str = ""):
+    """探测 HuggingFace 仓库里的 .gguf 文件（量化级别 + 体积）。"""
+    check_auth(request)
+    if not name:
+        raise HTTPException(status_code=400, detail="需要 name 参数指定实例")
+    if not repo or "/" not in repo:
+        raise HTTPException(status_code=400, detail="repo 需要形如 unsloth/Qwen2.5-7B-Instruct-GGUF")
+    q = f"/minimax_api/hf_gguf_files?repo={quote(repo, safe='')}"
+    if hf_token:
+        q += f"&hf_token={quote(hf_token, safe='')}"
+    try:
+        return _easycolab_api(name, q, timeout=45)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"探测 HF 仓库失败: {str(e)[:300]}")
+
+
+@app.post("/api/easycolab/register-model")
+async def api_easycolab_register_model(name: str, request: Request):
+    """把任意 HF GGUF 注册成远端可下载 / 可加载的模型条目。"""
+    check_auth(request)
+    body = await request.json()
+    if not body.get("repo_id") or not body.get("filename"):
+        raise HTTPException(status_code=400, detail="需要 repo_id 与 filename")
+    return _easycolab_api(name, "/minimax_api/register_custom_model", "POST", {
+        "repo_id": body.get("repo_id"),
+        "filename": body.get("filename"),
+        "name": body.get("name") or "",
+        "mmproj_file": body.get("mmproj_file") or "",
+        "vram_gb": float(body.get("vram_gb") or 0.0),
+        "approx_size_gb": float(body.get("approx_size_gb") or 0.0),
+        "context_length": int(body.get("context_length") or 32768),
+    }, timeout=60)
+
+
+@app.post("/api/easycolab/remove-custom-model")
+async def api_easycolab_remove_custom_model(name: str, request: Request):
+    """删除自定义模型注册（已下载权重保留，可重新注册）。"""
+    check_auth(request)
+    body = await request.json()
+    mid = (body.get("model_id") or "").strip()
+    if not mid:
+        raise HTTPException(status_code=400, detail="需要 model_id")
+    return _easycolab_api(name, "/minimax_api/remove_custom_model", "POST", {"model_id": mid}, timeout=60)
 
 
 @app.post("/api/easycolab/generate")

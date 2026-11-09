@@ -158,6 +158,7 @@ a:hover{color:#93C5FD}
   background:rgba(148,163,184,.12);color:#CBD5E1;font:500 11px/1 "Fira Code",ui-monospace,monospace;letter-spacing:.04em}
 .tag.orphan{background:rgba(245,158,11,.14);color:#FCD34D;border-color:rgba(245,158,11,.3)}
 .tag.ok{background:rgba(34,197,94,.13);color:#86EFAC;border-color:rgba(34,197,94,.28)}
+.tag.warn{background:rgba(59,130,246,.14);color:#93C5FD;border-color:rgba(59,130,246,.32)}
 
 .files{display:flex;flex-direction:column;gap:3px;margin-top:12px;max-height:340px;overflow:auto}
 .frow{display:flex;gap:10px;align-items:center;padding:7px 10px;border-radius:8px;border:1px solid transparent;
@@ -328,9 +329,40 @@ summary:hover{background:rgba(148,163,184,.08);border-color:var(--line);color:va
       <b>模型清单 <span class="tag" id="ecModelCount">0</span></b>
       <div class="mut" style="margin:6px 0">
         先「下载权重」再「加载显存」。多模型可同时常驻，显存不够时自动 LRU 驱逐。
+        小显存档位（T4 16GB）请用 Q4/Q5 量化的小参数模型。
       </div>
       <div class="mut" id="ecModelFiles" style="margin-bottom:8px">—</div>
       <div id="ecModels"><span class="mut">选择实例后加载…</span></div>
+    </div>
+
+    <div class="card">
+      <b>自定义模型 · 从 HuggingFace 拉取任意 GGUF</b>
+      <div class="mut" style="margin:6px 0">
+        输入 HF 仓库 id（形如 <code>unsloth/Qwen2.5-3B-Instruct-GGUF</code>）→ 探测仓库里的全部 .gguf
+        变体与体积 → 选一个注册 → 它就和内置模型一样能下载 / 加载 / 对话 / 走 /v1 网关。
+      </div>
+      <div class="row" style="margin:8px 0">
+        <span class="label">HF 仓库</span>
+        <input id="hfRepo" placeholder="Qwen/Qwen2.5-3B-Instruct-GGUF" style="flex:1;min-width:320px">
+        <input id="hfToken" placeholder="HF Token（gated 仓库需要，可留空）" style="width:260px">
+        <button class="btn green sm" id="btnHfProbe">探测</button>
+        <span class="busy" id="hfBusy"></span>
+      </div>
+      <div id="hfFiles" class="mut">尚未探测。</div>
+      <div class="row" style="margin-top:8px">
+        <span class="label">上下文</span>
+        <select id="hfCtx">
+          <option value="8192">8K</option>
+          <option value="16384">16K</option>
+          <option value="32768" selected>32K</option>
+          <option value="65536">64K</option>
+          <option value="131072">128K</option>
+        </select>
+        <span class="label">显示名（可选）</span>
+        <input id="hfName" placeholder="留空自动按仓库名 + 量化级别" style="width:260px">
+      </div>
+      <div id="hfSelected" class="mut" style="margin-top:8px">未选择量化文件。</div>
+      <pre class="out" id="hfOut" style="max-height:200px;overflow:auto;margin-top:8px"></pre>
     </div>
 
     <div class="card">
@@ -983,25 +1015,130 @@ function ecNeed() { const s = ecResolve(); if (!s) { alert("先在实例页建/�
 $("ecSessSel").onchange = e => { ecSess = e.target.value; startEcPoll(); };
 
 async function loadEcModels() {
-  const r = await api("/api/easycolab/models");
-  ecModelsCache = r.models || [];
-  $("ecModelCount").textContent = String(ecModelsCache.length);
-  $("ecModels").innerHTML = ecModelsCache.map(m => `
+  const s = ecResolve();
+  let r;
+  try {
+    r = s ? await api(`/api/easycolab/model-catalog?name=${encodeURIComponent(s)}`)
+          : await api("/api/easycolab/models");
+  } catch (e) {
+    r = await api("/api/easycolab/models");
+  }
+  const models = (r.models || []).map(m => ({
+    id: m.id,
+    name: m.name || m.id,
+    modality: m.modality || "",
+    size_gb: m.size_gb ?? m.approx_size_gb ?? 0,
+    vram_gb: m.vram_gb ?? 0,
+    desc: m.desc || m.category || "",
+    is_custom: !!m.is_custom,
+    backend: m.backend || "",
+    downloaded: m.downloaded,
+    downloaded_count: m.downloaded_count,
+    total_count: m.total_count,
+    loaded: m.loaded,
+  }));
+  ecModelsCache = models;
+  $("ecModelCount").textContent = String(models.length);
+  $("ecModels").innerHTML = models.map(m => `
     <div class="sess" data-model="${m.id}">
       <span class="name">${m.name}</span>
-      <span class="tag ok">${m.modality}</span>
-      <span class="meta">${m.size_gb} GB 权重 · 需 ~${m.vram_gb} GB 显存 · ${m.desc}</span>
+      <span class="tag ${m.is_custom ? "warn" : "ok"}">${m.is_custom ? "自定义" : (m.backend === "gguf" ? "GGUF" : m.modality)}</span>
+      <span class="meta">${m.size_gb || "?"} GB 权重${m.vram_gb ? ` · 需 ~${m.vram_gb} GB 显存` : ""}${m.backend === "gguf" ? " · CPU 也可跑" : ""}${m.desc ? " · " + m.desc : ""}</span>
       <div class="ops">
         <button class="btn gray sm" data-dl="${m.id}">下载权重</button>
-        <button class="btn green sm" data-load="${m.id}">加载显存</button>
+        <button class="btn green sm" data-load="${m.id}">${m.backend === "gguf" ? "加载" : "加载显存"}</button>
         <button class="btn gray sm" data-unload="${m.id}">卸载</button>
+        ${m.is_custom ? `<button class="btn gray sm" data-rm="${m.id}">移除注册</button>` : ""}
       </div>
       <div class="meta ec-state" data-state="${m.id}">—</div>
     </div>`).join("");
   $("ecModels").querySelectorAll("[data-dl]").forEach(b => b.onclick = () => ecAction("/api/easycolab/download-model", {model_id: b.dataset.dl}, "下载中…"));
-  $("ecModels").querySelectorAll("[data-load]").forEach(b => b.onclick = () => ecAction("/api/easycolab/load-model", {model_id: b.dataset.load}, "加载显存中…"));
+  $("ecModels").querySelectorAll("[data-load]").forEach(b => b.onclick = () => {
+    const m = ecModelsCache.find(x => x.id === b.dataset.load);
+    ecAction("/api/easycolab/load-model", {model_id: b.dataset.load},
+             m && m.backend === "gguf" ? "加载中（GGUF 走 llama.cpp）…" : "加载显存中…");
+  });
   $("ecModels").querySelectorAll("[data-unload]").forEach(b => b.onclick = () => ecAction("/api/easycolab/unload-model", {model_id: b.dataset.unload}, "卸载中…"));
+  $("ecModels").querySelectorAll("[data-rm]").forEach(b => b.onclick = async () => {
+    if (!confirm(`移除自定义模型注册？已下载的权重会保留在实例磁盘上。\n${b.dataset.rm}`)) return;
+    await ecAction("/api/easycolab/remove-custom-model", {model_id: b.dataset.rm}, "移除中…");
+    loadEcModels();
+  });
 }
+// ---------------------------------------------------------------------------
+// 自定义模型：探测 HF 仓库 → 选量化 → 注册
+// ---------------------------------------------------------------------------
+let hfProbe = null;
+let hfPick = null;
+
+$("btnHfProbe").onclick = async () => {
+  const s = ecNeed(); if (!s) return;
+  const repo = $("hfRepo").value.trim();
+  if (!repo.includes("/")) return alert("仓库 id 需要形如 unsloth/Qwen2.5-3B-Instruct-GGUF");
+  $("btnHfProbe").disabled = true;
+  $("hfBusy").textContent = "探测中…";
+  hfPick = null;
+  try {
+    const tok = $("hfToken").value.trim();
+    const r = await api(`/api/easycolab/hf-files?name=${encodeURIComponent(s)}&repo=${encodeURIComponent(repo)}${tok ? "&hf_token=" + encodeURIComponent(tok) : ""}`);
+    if (r.ok === false || r.error) { $("hfFiles").textContent = "❌ " + (r.error || "探测失败"); return; }
+    hfProbe = r;
+    const gg = r.gguf_files || [], mm = r.mmproj_files || [];
+    if (!gg.length) {
+      $("hfFiles").textContent = `仓库 ${repo} 里没有 .gguf 文件${r.library_name ? `（library_name=${r.library_name}）` : ""}。确认是 GGUF 量化仓库。`;
+      return;
+    }
+    const rows = gg.map((f, i) => `
+      <label class="hf-row" style="display:flex;gap:8px;align-items:center;padding:4px 0">
+        <input type="radio" name="hfPick" value="${i}">
+        <span><b>${f.quant || "?"}</b> · ${f.size_gb ? f.size_gb + " GB" : "体积未知"}</span>
+        <span class="mut">${f.filename}</span>
+      </label>`).join("");
+    const mmOpts = mm.length
+      ? `<div style="margin-top:6px">视觉投影器 (可选，多模态用) <select id="hfMmproj"><option value="">不挂 mmproj（纯文本）</option>${mm.map(f => `<option value="${f.filename}">${f.filename} (${f.size_gb || "?"} GB)</option>`).join("")}</select></div>`
+      : "";
+    $("hfFiles").innerHTML =
+      `<div style="margin:6px 0 4px">共 ${gg.length} 个 GGUF 变体${r.gated ? " · ⚠️ gated 仓库需填 HF Token" : ""}</div>${rows}${mmOpts}`;
+    $("hfFiles").querySelectorAll('input[name="hfPick"]').forEach(el => el.onchange = () => {
+      const f = gg[+el.value];
+      hfPick = f;
+      $("hfSelected").innerHTML =
+        `已选 <b>${f.quant}</b> · ${f.size_gb || "?"} GB · <code>${f.filename}</code>` +
+        ` <button class="btn green sm" id="btnHfRegister" style="margin-left:12px">注册此模型</button>`;
+    });
+  } catch (e) {
+    $("hfFiles").textContent = "❌ 探测失败: " + e.message;
+  } finally { $("btnHfProbe").disabled = false; $("hfBusy").textContent = ""; }
+};
+
+document.addEventListener("click", async e => {
+  const b = e.target.closest("#btnHfRegister");
+  if (!b) return;
+  const s = ecNeed(); if (!s) return;
+  if (!hfProbe || !hfPick) return alert("先探测仓库并选择一个量化文件");
+  const mm = ($("hfMmproj") && $("hfMmproj").value) || "";
+  const body = {
+    repo_id: hfProbe.repo_id,
+    filename: hfPick.filename,
+    name: $("hfName").value.trim(),
+    mmproj_file: mm,
+    approx_size_gb: hfPick.size_gb || 0,
+    vram_gb: 0,
+    context_length: +$("hfCtx").value || 32768,
+  };
+  b.disabled = true;
+  $("hfOut").textContent = "注册中…";
+  try {
+    const r = await api(`/api/easycolab/register-model?name=${encodeURIComponent(s)}`, {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+    });
+    $("hfOut").textContent = JSON.stringify(r, null, 2);
+    await loadEcModels();
+    await loadEcStatus();
+  } catch (err) {
+    $("hfOut").textContent = "注册失败: " + err.message;
+  } finally { b.disabled = false; }
+});
 
 function ecRenderStates(st) {
   const loaded = new Set(st.loaded_model_ids || []);
@@ -1021,10 +1158,11 @@ function ecRenderStates(st) {
     const el = $("ecModels").querySelector(`[data-state="${m.id}"]`);
     if (!el) return;
     const bits = [];
-    if (loaded.has(m.id)) bits.push("✅ 已加载显存");
+    if (loaded.has(m.id)) bits.push(st.cuda_available ? "✅ 已加载显存" : "✅ 已就绪（CPU 推理）");
     if (m.id === selected) {
       const d = (st.loaded_models_detail || []).find(x => x.id === m.id);
-      bits.push(`当前选中${d && d.context_length ? " · " + (d.context_length/1024) + "K 上下文" : ""}${d ? " · " + d.vram_gb + " GB" : ""}`);
+      const vramTxt = d && d.vram_gb ? ` · ${d.vram_gb} GB 显存` : "";
+      bits.push(`当前选中${d && d.context_length ? " · " + (d.context_length/1024) + "K 上下文" : ""}${vramTxt}`);
     }
     if (st.is_downloading && m.id === selected) bits.push(`下载 ${Math.round((st.task_progress||0)*100)}% ${st.task_message||""}`);
     if (st.is_loading_vram && m.id === selected) bits.push(`加载 ${Math.round((st.task_progress||0)*100)}% ${st.task_message||""}`);

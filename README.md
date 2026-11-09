@@ -18,7 +18,8 @@ cd GoogleColabPanel && docker compose up -d --build
 - **网页接入**：一键生成接入该 VM 的 Colab 网页链接（浏览器直接打开）
 - **文件**：上传 / 下载实例内文件
 - **其他**：重启内核、挂载 Google Drive、远程 pip 安装
-- **模型工作台**：一键把 EasyColab 服务端部署到实例，管理 5 个模型的权重下载 / 加载显存 / 卸载，调上下文长度与 API Key，起停 ComfyUI，并通过面板的 `/v1/*` 直接提供 OpenAI 与 Anthropic 兼容网关
+- **模型工作台**：一键把 EasyColab 服务端部署到实例，管理 5 个内置模型的权重下载 / 加载 / 卸载，调上下文长度与 API Key，起停 ComfyUI，并通过面板的 `/v1/*` 直接提供 OpenAI 与 Anthropic 兼容网关
+- **任意 HF 量化模型**：输入任意 HuggingFace `repo_id`，探测仓库里全部 `.gguf` 变体（含量化级别与体积），选一个注册后与内置模型同权——下载、加载、对话、走 `/v1` 网关。**GGUF 在纯 CPU 实例上也能跑**
 
 ## 模型工作台
 
@@ -32,7 +33,21 @@ cd GoogleColabPanel && docker compose up -d --build
 | Qwen-Image-2.1 | 30.9 GB | 24.0 GB |
 | Z-Image-Turbo | 30.6 GB | 24.0 GB |
 
-流程：选实例 → 一键部署 → 下载权重 → 加载显存 → 面板里在线生成，或用生成的 Base URL 调 `/v1/chat/completions`、`/v1/images/generations`。
+流程：选实例 → 一键部署 → 下载权重 → 加载 → 面板里在线生成，或用生成的 Base URL 调 `/v1/chat/completions`、`/v1/images/generations`。
+
+### 拉取任意 HuggingFace 量化模型
+
+内置目录里大多是"满血"权重（T4 的 16 GB 显存装不下）。模型工作台第三张卡片「自定义模型 · 从 HuggingFace 拉取任意 GGUF」解决这件事：
+
+1. 填 `repo_id`（形如 `Qwen/Qwen2.5-3B-Instruct-GGUF`），gated 仓库再填 HF Token
+2. 点「探测」→ 面板列出仓库里全部 `.gguf` 文件、量化级别（Q2_K / Q4_K_M / Q8_0 …）与体积，多模态仓库还会列出 `mmproj-*`
+3. 选一个量化变体、选上下文长度（8K–128K），名字留空则自动按仓库名 + 量化级别生成
+4. 点「注册」→ 模型进入清单，之后和内置模型完全一样：下载权重 → 加载 → 对话 / `/v1`
+
+远端 `app.py` 里是 `hf_api_list_gguf_files()` + `register_custom_gguf_model()`，注册表落 `/content/custom_models.json`，重启后自动恢复。GGUF 走 llama.cpp 的 `llama-server`（自动下载对应后端：有 GPU 用 CUDA 12 版 + cudart，纯 CPU 用 23 MB 的 CPU 版），加载时读 GGUF 头部拿真实层数与原生上下文来算 `-ngl`：
+
+- **有 GPU**：按显存余量决定 KV 量化（q8_0/q4_0）与卸载层数；装得下就全量驻留，装不下自动降级重试
+- **纯 CPU 实例**：`-ngl 0` 全部层留在内存，KV 用 q8_0（失败退 f16）。3B-Q4_K_M 在 12.7 GB RAM 的 CPU 实例上加载 3.6 秒，单轮对话 ~9 秒
 
 面板「在线生成」卡片直接走 `/api/easycolab/generate` + `/api/easycolab/job/{id}` 轮询：文生图、文生视频、对话/视觉理解三种模式，带进度条、停止按钮，完成后图片/视频内联渲染。`/api/easycolab/cancel` 对应远端的停止指令。
 
@@ -107,5 +122,6 @@ Google OAuth 凭证与会话记录都在容器 `/data`：
 3. **ToS 风险**：headless 非网页方式使用 Colab 属灰色地带，参考上游声明——仅在自有付费账号上合理自用，账号风险自行评估
 4. 新建实例名默认随机；`colab sessions` 输出为人类可读文本，面板按行解析，Colab 后端格式变化时以「CLI 原始输出」区为准
 5. **gradio.live 隧道是临时的**（官方 best effort，最长约 1 周）。实例重启或隧道失效后重新点「一键部署」即可，面板会记录新地址
-6. **模型要匹配实例显存**：MiniMax-H3 需 64.5 GB（只有 G4/H100 级实例够），Qwen3.8-27B BF16 需 53 GB。CPU 实例可以部署服务端但不能加载模型，面板会直接回 409 说明原因
-7. 首次部署若实例里没有 DiffSynth-Studio 会额外克隆并安装，耗时 3~10 分钟；Colab 默认镜像通常已带
+6. **模型要匹配实例显存**：MiniMax-H3 需 64.5 GB（只有 G4/H100 级实例够），Qwen3.8-27B BF16 需 53 GB。CPU 实例只能跑 GGUF（llama.cpp）；其他模型面板会直接回 409 说明原因
+7. **GGUF 在 CPU 上慢**：3B-Q4_K_M 单轮 ~9 秒；7B 约 3–4 倍耗时，27B 不建议纯 CPU 跑
+8. 首次部署若实例里没有 DiffSynth-Studio 会额外克隆并安装，耗时 3~10 分钟；Colab 默认镜像通常已带
