@@ -60,7 +60,7 @@ curl http://<面板>:8080/v1/chat/completions?name=<实例名> \
 
 `name` 可省略，但仅在恰好一个实例已部署服务时自动选中。
 
-部署依赖 EasyColab 源码在容器内 `/opt/easycolab/app.py`（compose 默认挂载 `../easycolab`）。**注意**：如果你的 Docker daemon 在远程或路径解析基准与 compose 客户端不同，相对路径会被 daemon 解析到别处，导致挂载成空目录——这种情况把 `EASYCOLAB_SRC_DIR` 设成宿主机绝对路径。
+模型工作台需要 EasyColab 服务端源码在容器内 `/opt/easycolab/app.py`。源码随仓库分发在 `./easycolab/app.py`（已合入自定义 GGUF 支持），compose 默认就挂它，克隆下来即可用。想换别的副本时把 `EASYCOLAB_SRC_DIR` 指向宿主机绝对路径——**注意**：如果 Docker daemon 在远程或路径解析基准与 compose 客户端不同，相对路径会被 daemon 解析到别处，导致挂载成空目录。
 
 ## 部署
 
@@ -72,7 +72,7 @@ docker compose up -d --build
 
 浏览器打开 `http://<服务器IP>:8080`，输入 API_TOKEN 进面板（口令见下）。
 
-挂载路径默认相对 compose 文件（`./data` 与 `../easycolab`）。需要换位置时用环境变量覆盖，或写一个 `docker-compose.override.yml`（已被 `.gitignore` 忽略，适合放站点专属配置如外部网络）：
+挂载路径默认相对 compose 文件（`./data` 与 `./easycolab`）。需要换位置时用环境变量覆盖，或写一个 `docker-compose.override.yml`（已被 `.gitignore` 忽略，适合放站点专属配置如外部网络）：
 
 ```yaml
 services:

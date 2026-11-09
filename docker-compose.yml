@@ -9,7 +9,7 @@ services:
     volumes:
       # OAuth 凭证 / 会话表 / 面板口令都在这里，必须持久化
       - ${PANEL_DATA_DIR:-./data}:/data
-      # 可选：模型工作台需要 EasyColab 服务端源码（app.py）。
-      # 不提供也能跑，只是「模型工作台」tab 会提示找不到 app.py。
-      - ${EASYCOLAB_SRC_DIR:-../easycolab}:/opt/easycolab:ro
+      # EasyColab 服务端源码（随仓库分发在 ./easycolab/app.py）。
+      # 换别的副本时把 EASYCOLAB_SRC_DIR 设成宿主机绝对路径。
+      - ${EASYCOLAB_SRC_DIR:-./easycolab}:/opt/easycolab:ro
     restart: unless-stopped
