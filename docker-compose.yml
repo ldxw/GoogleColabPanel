@@ -3,6 +3,10 @@ services:
     build: .
     container_name: colab-panel
     ports: ["8080:8080"]
+    # API_TOKEN 可选：不设置则自动生成随机口令（落在 data 卷，容器重启不变）
+    # 查看方式：docker exec colab-panel cat /data/.config/colab-cli/panel_api_token
+    # MCP 端点另有独立口令，与面板口令不通用：
+    # 查看方式：docker exec colab-panel cat /data/.config/colab-cli/mcp_api_key
     environment:
       # MCP 端点 /mcp：1=开启（默认），0/false/no/off=关闭
       MCP_ENABLED: "1"
@@ -10,8 +14,8 @@ services:
       MCP_DOWNLOAD_DIR: "/data/mcp-downloads"
       # Host 白名单，逗号分隔；不设则不校验 Host（口令是唯一门槛）
       # MCP_ALLOWED_HOSTS: "colab.example.com"
-      # API_TOKEN 可选：不设置（或留空）时自动生成随机口令并落盘复用
-      # API_TOKEN: "换成你自己的长随机串"
+      # MCP 端点专属口令；不设置则自动生成并落盘
+      # MCP_API_KEY: "换成另一串长随机值"
     volumes:
       # OAuth 凭证 / 会话表 / 面板口令都在这里，必须持久化
       - ${PANEL_DATA_DIR:-./data}:/data

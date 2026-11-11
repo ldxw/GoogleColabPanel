@@ -16,6 +16,7 @@ import base64
 import hmac
 import json
 import os
+import secrets
 import tempfile
 from contextlib import asynccontextmanager
 from typing import Any, Optional
@@ -32,6 +33,10 @@ except ImportError:                   # 兼容只装了 httpx 的环境
 
 MCP_MOUNT = "/mcp"
 MAX_INLINE_BYTES = 2 * 1024 * 1024
+
+# MCP 端点使用独立口令（MCP_API_KEY），与面板 API_TOKEN 互不通用。
+# 未设置时自动生成并落盘，容器重启不变。
+MCP_KEY_FILE = os.path.expanduser("~/.config/colab-cli/mcp_api_key")
 
 DEFAULT_INSTRUCTIONS = """\
 Colab Panel MCP：管理 Google Colab 实例并调用其上部署的模型服务。
@@ -842,13 +847,42 @@ class _MountShim:
         await self.app(scope, receive, send)
 
 
+def resolve_mcp_key() -> str:
+    """取 MCP 端点的独立口令。
+
+    优先用 MCP_API_KEY 环境变量；否则读落盘口令；都没有时随机生成并写入
+    ~/.config/colab-cli/mcp_api_key（Docker 里即 /data/.config/colab-cli/mcp_api_key）。
+    """
+    key = os.environ.get("MCP_API_KEY", "").strip()
+    if key:
+        return key
+    try:
+        with open(MCP_KEY_FILE, "r", encoding="utf-8") as f:
+            key = f.read().strip()
+        if key:
+            return key
+    except Exception:
+        pass
+    key = secrets.token_urlsafe(24)
+    os.makedirs(os.path.dirname(MCP_KEY_FILE), exist_ok=True)
+    with open(MCP_KEY_FILE, "w", encoding="utf-8") as f:
+        f.write(key)
+    os.chmod(MCP_KEY_FILE, 0o600)
+    print(f"[mcp] 已自动生成 MCP 口令并保存到 {MCP_KEY_FILE}")
+    return key
+
+
 def install_mcp(app: Any, token: str) -> bool:
-    """把 MCP 端点挂到 app 上；没有开启 MCP 时返回 False。"""
+    """把 MCP 端点挂到 app 上；没有开启 MCP 时返回 False。
+
+    参数 token 是面板 API_TOKEN，只用于工具内部回环调用面板；
+    对外的 /mcp 端点用独立口令（MCP_API_KEY / mcp_api_key 文件）鉴权。
+    """
     if os.environ.get("MCP_ENABLED", "1").strip().lower() in ("0", "false", "no", "off"):
         print("[mcp] 已通过 MCP_ENABLED=0 关闭")
         return False
     if not token:
-        print("[mcp] 未拿到 API_TOKEN，跳过")
+        print("[mcp] 未拿到面板 API_TOKEN，跳过")
         return False
 
     mcp = build_mcp_server(app, token)
@@ -877,7 +911,8 @@ def install_mcp(app: Any, token: str) -> bool:
 
     app.router.lifespan_context = lifespan
 
-    guarded = _TokenGuard(mcp_app, token)
+    mcp_key = resolve_mcp_key()
+    guarded = _TokenGuard(mcp_app, mcp_key)
     # 精确路径 /mcp 单独注册：Mount 正则不含自身，会先落到 redirect_slashes 的 307，
     # 而部分 MCP 客户端不跟随 307。
     app.router.routes.append(
@@ -889,5 +924,5 @@ def install_mcp(app: Any, token: str) -> bool:
         )
     )
     app.mount(MCP_MOUNT, guarded)
-    print(f"[mcp] 已挂载 {MCP_MOUNT}（streamable-http，令牌复用 API_TOKEN）")
+    print(f"[mcp] 已挂载 {MCP_MOUNT}（streamable-http，使用独立 MCP 口令）")
     return True

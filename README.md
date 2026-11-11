@@ -107,9 +107,33 @@ docker exec colab-panel cat /data/.config/colab-cli/panel_api_token
 
 面板内置一个 MCP 服务器，和 Web UI 同进程同端口，端点 `POST /mcp`（streamable-http）。
 工具内部用 `httpx` 的 `ASGITransport` 直接打面板自己的 ASGI app，不开额外端口，反代 / 改绑定地址都不影响。
-鉴权复用面板口令，**没有第二套凭据**。
+MCP 端点用**独立口令**，与面板 `API_TOKEN` 互不通用：拿到 MCP 口令的人拿不到面板，反之亦然。默认开启（`MCP_ENABLED=1`）。
 
-**客户端配置**（域名换成你自己的）：
+**1. 取 MCP 口令和地址**
+
+```bash
+docker exec colab-panel cat /data/.config/colab-cli/mcp_api_key
+```
+
+该口令优先来自环境变量 `MCP_API_KEY`；未设置时首次启动自动生成 32 字符随机值并落盘（`0600`），容器重启不变。
+面板自己的口令仍在 `/data/.config/colab-cli/panel_api_token`，只用于登 Web UI，**不能**用来连 `/mcp`。
+
+端点就是面板地址后面加 `/mcp`：反代后是 `https://<你的域名>/mcp`，直连是 `http://<服务器IP>:8080/mcp`。
+MCP 口令两种传法：请求头 `Authorization: Bearer <MCP_KEY>`，或查询串 `?token=<MCP_KEY>`（给不能自定义头的客户端）。
+
+**2. 配到客户端**
+
+Claude Code：
+
+```bash
+claude mcp add --transport http colab-panel \
+  https://<你的域名>/mcp \
+  --header "Authorization: Bearer <MCP_KEY>"
+```
+
+只想对当前目录生效时加 `--scope project`；用 `claude mcp list` 确认状态是 connected。
+
+通用 JSON 配置（Claude 桌面版、Cursor 等支持远程 MCP 的客户端）：
 
 ```json
 {
@@ -117,13 +141,46 @@ docker exec colab-panel cat /data/.config/colab-cli/panel_api_token
     "colab-panel": {
       "type": "http",
       "url": "https://<你的域名>/mcp",
-      "headers": { "Authorization": "Bearer <面板 API_TOKEN>" }
+      "headers": { "Authorization": "Bearer <MCP_KEY>" }
     }
   }
 }
 ```
 
-查询串形式也可用：`https://<你的域名>/mcp?token=<面板 API_TOKEN>`。
+只支持 stdio 的旧版客户端，用 `mcp-remote` 桥接：
+
+```json
+{
+  "mcpServers": {
+    "colab-panel": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://<你的域名>/mcp",
+               "--header", "Authorization: Bearer <MCP_KEY>"]
+    }
+  }
+}
+```
+
+**3. 先自检再接入**
+
+```bash
+curl -sS https://<你的域名>/mcp \
+  -H "Authorization: Bearer $MCP_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
+       "params":{"protocolVersion":"2025-06-18","capabilities":{},
+                 "clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+返回里出现 `"serverInfo":{"name":"colab-panel"}` 即通。`401` 口令不对；`404` MCP 被关（`MCP_ENABLED=0`）；`421` Host 被 `MCP_ALLOWED_HOSTS` 拒绝。
+
+**4. 首次接入流程**
+
+1. `panel_status` 看登录态与 CU 余额
+2. 没绑 Google 就 `panel_auth_url` → 把链接交给人登录 → `panel_auth_code` 提交授权码（这一步 agent 无法独立完成）
+3. 临时跑代码用 `panel_run`：按需建实例、执行、跑完释放；默认 CPU，要显卡显式传 `gpu="t4"` / `l4` / `a100` / `h100` / `g4`
+4. 实例按小时消耗 CU，用完调 `panel_stop` / `panel_stop_all`
 
 **25 个工具**，分 7 组：
 
@@ -149,10 +206,11 @@ docker exec colab-panel cat /data/.config/colab-cli/panel_api_token
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `MCP_ENABLED` | `1`（开启） | 设 `0` / `false` / `no` / `off` 关闭整个 `/mcp` 端点（关闭后访问返回 404） |
+| `MCP_API_KEY` | 空（自动生成） | MCP 端点专属口令；不设时自动生成并写入 `/data/.config/colab-cli/mcp_api_key` |
 | `MCP_ALLOWED_HOSTS` | 空（不校验 Host） | 逗号分隔的 Host 白名单，如 `colab.example.com`；设置后会拒绝其它 Host（421） |
 | `MCP_DOWNLOAD_DIR` | `/data/mcp-downloads` | `panel_download` 的面板侧落盘目录 |
 
-`docker-compose.yml` 里 `environment` 是映射，默认已写 `MCP_ENABLED: "1"` 与 `MCP_DOWNLOAD_DIR`；`MCP_ALLOWED_HOSTS`、`API_TOKEN` 是注释行，取消注释即可启用——不要再写成 `environment: []`，那会与键值行冲突导致 compose 解析失败。
+`docker-compose.yml` 里 `environment` 是映射，默认已写 `MCP_ENABLED: "1"` 与 `MCP_DOWNLOAD_DIR`；`MCP_API_KEY`、`MCP_ALLOWED_HOSTS`、`API_TOKEN` 是注释行，取消注释即可启用——不要再写成 `environment: []`，那会与键值行冲突导致 compose 解析失败。
 
 不设 `MCP_ALLOWED_HOSTS` 时 DNS rebinding 校验关闭（否则内网 IP、反代域名都会被拒），此时口令是唯一门槛。
 **`/mcp` 与面板同样请勿裸暴露公网**，建议放在反代 + 额外认证之后，或设置 `MCP_ALLOWED_HOSTS` 收窄来源。
@@ -165,6 +223,7 @@ Google OAuth 凭证与会话记录都在容器 `/data`：
 /data/.config/colab-cli/token.json          # OAuth token（自动刷新）
 /data/.config/colab-cli/sessions.json       # 本地会话表
 /data/.config/colab-cli/panel_api_token     # 自动生成的面板口令（未显式设置 API_TOKEN 时）
+/data/.config/colab-cli/mcp_api_key        # MCP 端点独立口令（未显式设置 MCP_API_KEY 时）
 /data/.config/colab-cli/panel_easycolab.json # 各实例的 gradio.live 隧道地址
 /data/mcp-downloads/                        # panel_download 落盘的文件（MCP_DOWNLOAD_DIR 可改）
 ```
