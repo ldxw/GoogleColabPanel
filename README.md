@@ -148,9 +148,11 @@ docker exec colab-panel cat /data/.config/colab-cli/panel_api_token
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `MCP_ENABLED` | `1` | 设 `0` / `false` 关闭整个 `/mcp` 端点 |
+| `MCP_ENABLED` | `1`（开启） | 设 `0` / `false` / `no` / `off` 关闭整个 `/mcp` 端点（关闭后访问返回 404） |
 | `MCP_ALLOWED_HOSTS` | 空（不校验 Host） | 逗号分隔的 Host 白名单，如 `colab.example.com`；设置后会拒绝其它 Host（421） |
 | `MCP_DOWNLOAD_DIR` | `/data/mcp-downloads` | `panel_download` 的面板侧落盘目录 |
+
+`docker-compose.yml` 里 `environment` 是映射，默认已写 `MCP_ENABLED: "1"` 与 `MCP_DOWNLOAD_DIR`；`MCP_ALLOWED_HOSTS`、`API_TOKEN` 是注释行，取消注释即可启用——不要再写成 `environment: []`，那会与键值行冲突导致 compose 解析失败。
 
 不设 `MCP_ALLOWED_HOSTS` 时 DNS rebinding 校验关闭（否则内网 IP、反代域名都会被拒），此时口令是唯一门槛。
 **`/mcp` 与面板同样请勿裸暴露公网**，建议放在反代 + 额外认证之后，或设置 `MCP_ALLOWED_HOSTS` 收窄来源。
