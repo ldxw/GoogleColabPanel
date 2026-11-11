@@ -115,6 +115,44 @@ Google OAuth 凭证与会话记录都在容器 `/data`：
 
 `data/` 与 `.env` 已在 `.gitignore` 中——里面是 OAuth token 和面板口令，不要提交。
 
+## 镜像发布（GitHub Actions）
+
+工作流 `.github/workflows/docker-publish.yml`，只在**手动触发**或**推送 tag** 时运行，普通 push / PR 不构建。
+
+**手动触发**：Actions → Build and Publish Image → Run workflow，页面上勾选要推送的库：
+
+| 输入 | 默认 | 说明 |
+|---|---|---|
+| `push_ghcr` | 勾选 | 推送到 `ghcr.io/<owner>/googlecolabpanel` |
+| `push_dockerhub` | 不勾 | 推送到 Docker Hub |
+| `push_aliyun` | 不勾 | 推送到阿里云 ACR |
+| `image_tag` | `latest` | 默认标签，留空即 `latest` |
+| `platforms` | `linux/amd64,linux/arm64` | 可只选单架构 |
+
+**tag 触发**：推 `v1.2.0` 这类 tag 时自动构建，只推 ghcr，默认标签取 tag 名。
+
+每次构建产生**两个标签**：默认标签（`latest` / 指定的名字 / tag 名）+ UTC 时间标签 `YYYYMMDD-HHMMSS`。多架构由一次 buildx 构建合并成 manifest，`docker pull` 时自动按平台选择。
+
+需要的仓库配置（Settings → Secrets and variables → Actions）：
+
+```
+Secrets:
+  DOCKERHUB_USERNAME / DOCKERHUB_TOKEN     # 勾选 Docker Hub 时必填
+  ALIYUN_USERNAME / ALIYUN_PASSWORD        # 勾选阿里云时必填
+Variables:
+  ALIYUN_REGISTRY   如 registry.cn-hangzhou.aliyuncs.com
+  ALIYUN_NAMESPACE  如 ldxw
+```
+
+ghcr 用内置 `GITHUB_TOKEN`，无需额外配置。勾选了但没有对应凭据时，工作流在构建前直接报错，不会静默跳过。
+
+用发布好的镜像部署：
+
+```bash
+docker run -d --name colab-panel -p 8080:8080 -v ./data:/data \
+  ghcr.io/ldxw/googlecolabpanel:latest
+```
+
 ## 已知限制
 
 1. **面板无用户体系**，仅 API_TOKEN 一道门。自动生成的口令强度足够，但请勿裸暴露公网，建议反代 + 额外认证
