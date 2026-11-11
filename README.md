@@ -20,6 +20,7 @@ cd GoogleColabPanel && docker compose up -d --build
 - **其他**：重启内核、挂载 Google Drive、远程 pip 安装
 - **模型工作台**：一键把 EasyColab 服务端部署到实例，管理 5 个内置模型的权重下载 / 加载 / 卸载，调上下文长度与 API Key，起停 ComfyUI，并通过面板的 `/v1/*` 直接提供 OpenAI 与 Anthropic 兼容网关
 - **任意 HF 量化模型**：输入任意 HuggingFace `repo_id`，探测仓库里全部 `.gguf` 变体（含量化级别与体积），选一个注册后与内置模型同权——下载、加载、对话、走 `/v1` 网关。**GGUF 在纯 CPU 实例上也能跑**
+- **MCP 服务器**：内置 `/mcp`（streamable-http）把全部能力暴露成 25 个 MCP 工具，AI 客户端配个 URL + 面板令牌即可接管面板
 
 ## 模型工作台
 
@@ -102,6 +103,58 @@ docker exec colab-panel cat /data/.config/colab-cli/panel_api_token
 3. **管理**：会话列表点「接管」→ 右侧可执行代码 / 生成网页链接 / 传文件 / 挂 Drive / 释放
 4. **用完释放**：点「释放此实例」或「释放全部」，CU 立即停止计费
 
+## MCP 接入（给 AI 客户端用）
+
+面板内置一个 MCP 服务器，和 Web UI 同进程同端口，端点 `POST /mcp`（streamable-http）。
+工具内部用 `httpx` 的 `ASGITransport` 直接打面板自己的 ASGI app，不开额外端口，反代 / 改绑定地址都不影响。
+鉴权复用面板口令，**没有第二套凭据**。
+
+**客户端配置**（域名换成你自己的）：
+
+```json
+{
+  "mcpServers": {
+    "colab-panel": {
+      "type": "http",
+      "url": "https://<你的域名>/mcp",
+      "headers": { "Authorization": "Bearer <面板 API_TOKEN>" }
+    }
+  }
+}
+```
+
+查询串形式也可用：`https://<你的域名>/mcp?token=<面板 API_TOKEN>`。
+
+**25 个工具**，分 7 组：
+
+| 组 | 工具 | 说明 |
+|---|---|---|
+| 账号 | `panel_status` `panel_usage` `panel_auth_url` `panel_auth_code` | 登录态 / CU 余额 / OAuth 授权 |
+| 实例 | `panel_sessions` `panel_create` `panel_stop` `panel_stop_all` `panel_ready` | 建、列、探活、释放 |
+| 执行 | `panel_exec` `panel_exec_async` `panel_job` `panel_run` `panel_install` | 内核执行 / 后台任务 / 一次性跑 / pip |
+| 文件 | `panel_upload` `panel_download` `panel_ls` `panel_rm` | 上传下载 / 列目录 / 删除 |
+| 模型 | `panel_models` `panel_deploy` `panel_model` `panel_generate` | 模型目录 / 部署 / 下载加载 / 生成 |
+| 网关 | `panel_chat` `panel_image` | `/v1` 对话与文生图 |
+| 逃生口 | `panel_api` | 任意端点直调 |
+
+约定：
+
+- `panel_run` 默认 `gpu="cpu"`；要显卡传 `gpu="t4"` / `l4` / `a100` / `h100` / `g4`。`keep=false` 时跑完即释放。
+- `panel_stop` / `panel_stop_all` / `panel_rm`、以及 `panel_api` 里的 DELETE / PUT 都需要 `confirm=true`；不带时只返回将影响的对象，不执行。
+- `panel_download` 默认把文件落到容器内 `MCP_DOWNLOAD_DIR`（默认 `/data/mcp-downloads/`）并返回路径；`inline=true` 且不超过 2 MB 时才返回 base64。
+- `panel_generate` 的 `prompt` 会映射到远端的必填字段 `visual_prompt`；`task_mode=chat` 时自动包成 `chat_messages`。
+
+**环境变量**：
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `MCP_ENABLED` | `1` | 设 `0` / `false` 关闭整个 `/mcp` 端点 |
+| `MCP_ALLOWED_HOSTS` | 空（不校验 Host） | 逗号分隔的 Host 白名单，如 `colab.example.com`；设置后会拒绝其它 Host（421） |
+| `MCP_DOWNLOAD_DIR` | `/data/mcp-downloads` | `panel_download` 的面板侧落盘目录 |
+
+不设 `MCP_ALLOWED_HOSTS` 时 DNS rebinding 校验关闭（否则内网 IP、反代域名都会被拒），此时口令是唯一门槛。
+**`/mcp` 与面板同样请勿裸暴露公网**，建议放在反代 + 额外认证之后，或设置 `MCP_ALLOWED_HOSTS` 收窄来源。
+
 ## 数据持久化
 
 Google OAuth 凭证与会话记录都在容器 `/data`：
@@ -111,6 +164,7 @@ Google OAuth 凭证与会话记录都在容器 `/data`：
 /data/.config/colab-cli/sessions.json       # 本地会话表
 /data/.config/colab-cli/panel_api_token     # 自动生成的面板口令（未显式设置 API_TOKEN 时）
 /data/.config/colab-cli/panel_easycolab.json # 各实例的 gradio.live 隧道地址
+/data/mcp-downloads/                        # panel_download 落盘的文件（MCP_DOWNLOAD_DIR 可改）
 ```
 
 `data/` 与 `.env` 已在 `.gitignore` 中——里面是 OAuth token 和面板口令，不要提交。

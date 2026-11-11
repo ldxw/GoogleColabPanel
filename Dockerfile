@@ -2,10 +2,11 @@ FROM python:3.12-slim
 
 RUN pip install --no-cache-dir \
     google-colab-cli==0.7.5 \
-    fastapi uvicorn python-multipart
+    fastapi uvicorn python-multipart \
+    "mcp>=2.3,<3"
 
 WORKDIR /app
-COPY panel.py ui.html ./
+COPY panel.py ui.html mcp_server.py ./
 
 ENV HOME=/data \
     PYTHONUNBUFFERED=1

@@ -2312,3 +2312,15 @@ def index():
 def _startup():
     ensure_watchdog_started()
     ensure_heartbeat_started()
+
+
+# ---------------------------------------------------------------------------
+# MCP 接入（同进程同端口，挂 /mcp；MCP_ENABLED=0 关闭）
+# ---------------------------------------------------------------------------
+try:
+    from mcp_server import install_mcp
+    install_mcp(app, API_TOKEN)
+except ImportError:
+    print("[mcp] 未安装 mcp 依赖，跳过 MCP 端点")
+except Exception as _e:
+    print(f"[mcp] 挂载失败，面板其余功能不受影响: {_e}")
