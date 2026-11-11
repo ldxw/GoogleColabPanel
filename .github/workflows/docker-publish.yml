@@ -1,0 +1,250 @@
+name: Build and Publish Image
+
+# 只有两种情况会构建：Actions 页面手动触发（Run workflow）、推送 tag。
+# 普通 push / PR 一律不构建。
+on:
+  workflow_dispatch:
+    inputs:
+      push_ghcr:
+        description: "推送到 GitHub Container Registry (ghcr.io)"
+        type: boolean
+        default: true
+      push_dockerhub:
+        description: "推送到 Docker Hub"
+        type: boolean
+        default: false
+      push_aliyun:
+        description: "推送到阿里云容器镜像服务 (ACR)"
+        type: boolean
+        default: false
+      image_tag:
+        description: "默认标签（留空为 latest；tag 触发时用 tag 名）"
+        type: string
+        default: latest
+      platforms:
+        description: "构建平台"
+        type: choice
+        default: linux/amd64,linux/arm64
+        options:
+          - linux/amd64,linux/arm64
+          - linux/amd64
+          - linux/arm64
+  push:
+    tags:
+      - "v*"
+      - "[0-9]*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: googlecolabpanel
+
+jobs:
+  build:
+    name: Build multi-arch image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------- 归一化参数 ----------------
+      - name: Resolve parameters
+        id: p
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          IN_GHCR: ${{ inputs.push_ghcr }}
+          IN_HUB: ${{ inputs.push_dockerhub }}
+          IN_ACR: ${{ inputs.push_aliyun }}
+          IN_TAG: ${{ inputs.image_tag }}
+          IN_PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            PUSH_GHCR="$IN_GHCR"; PUSH_HUB="$IN_HUB"; PUSH_ACR="$IN_ACR"
+            PLATFORMS="${IN_PLATFORMS:-linux/amd64,linux/arm64}"
+            DEFAULT_TAG="${IN_TAG:-latest}"
+          else
+            # tag 触发：默认只推 ghcr，与页面默认一致
+            PUSH_GHCR="true"; PUSH_HUB="false"; PUSH_ACR="false"
+            PLATFORMS="linux/amd64,linux/arm64"
+            DEFAULT_TAG="$REF_NAME"
+          fi
+
+          if [ "$PUSH_GHCR" != "true" ] && [ "$PUSH_HUB" != "true" ] && [ "$PUSH_ACR" != "true" ]; then
+            echo "::error::至少选择一个推送目标（ghcr / dockerhub / aliyun）"
+            exit 1
+          fi
+
+          # 标签只允许 registry 合法字符，避免拼出非法镜像名
+          if ! printf '%s' "$DEFAULT_TAG" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$'; then
+            echo "::error::标签 '$DEFAULT_TAG' 非法：只允许字母数字与 . _ -，且不以 . - 开头"
+            exit 1
+          fi
+
+          OWNER_LC="$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')"
+          NAME_LC="$(echo "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')"
+          TIME_TAG="$(date -u +%Y%m%d-%H%M%S)"
+
+          {
+            echo "default_tag=$DEFAULT_TAG"
+            echo "time_tag=$TIME_TAG"
+            echo "platforms=$PLATFORMS"
+            echo "push_ghcr=$PUSH_GHCR"
+            echo "push_hub=$PUSH_HUB"
+            echo "push_acr=$PUSH_ACR"
+            echo "name_lc=$NAME_LC"
+            echo "ghcr_image=ghcr.io/${OWNER_LC}/${NAME_LC}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "默认标签: $DEFAULT_TAG"
+          echo "时间标签: $TIME_TAG"
+          echo "平台: $PLATFORMS"
+          echo "推送: ghcr=$PUSH_GHCR dockerhub=$PUSH_HUB aliyun=$PUSH_ACR"
+
+      # ---------------- 凭据校验：勾选了却缺 secret 直接失败，不静默跳过 ----------------
+      - name: Validate credentials
+        env:
+          PUSH_GHCR: ${{ steps.p.outputs.push_ghcr }}
+          PUSH_HUB: ${{ steps.p.outputs.push_hub }}
+          PUSH_ACR: ${{ steps.p.outputs.push_acr }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          ALIYUN_USERNAME: ${{ secrets.ALIYUN_USERNAME }}
+          ALIYUN_PASSWORD: ${{ secrets.ALIYUN_PASSWORD }}
+          ALIYUN_REGISTRY: ${{ vars.ALIYUN_REGISTRY }}
+          ALIYUN_NAMESPACE: ${{ vars.ALIYUN_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          fail=0
+          if [ "$PUSH_HUB" = "true" ]; then
+            [ -n "${DOCKERHUB_USERNAME:-}" ] || { echo "::error::缺少 secret DOCKERHUB_USERNAME"; fail=1; }
+            [ -n "${DOCKERHUB_TOKEN:-}" ]    || { echo "::error::缺少 secret DOCKERHUB_TOKEN"; fail=1; }
+          fi
+          if [ "$PUSH_ACR" = "true" ]; then
+            [ -n "${ALIYUN_USERNAME:-}" ]  || { echo "::error::缺少 secret ALIYUN_USERNAME"; fail=1; }
+            [ -n "${ALIYUN_PASSWORD:-}" ]  || { echo "::error::缺少 secret ALIYUN_PASSWORD"; fail=1; }
+            [ -n "${ALIYUN_REGISTRY:-}" ]  || { echo "::error::缺少仓库变量 ALIYUN_REGISTRY（如 registry.cn-hangzhou.aliyuncs.com）"; fail=1; }
+            [ -n "${ALIYUN_NAMESPACE:-}" ] || { echo "::error::缺少仓库变量 ALIYUN_NAMESPACE（如 ldxw）"; fail=1; }
+          fi
+          exit "$fail"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---------------- 登录 ----------------
+      - name: Login ghcr.io
+        if: steps.p.outputs.push_ghcr == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login Docker Hub
+        if: steps.p.outputs.push_hub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login Aliyun ACR
+        if: steps.p.outputs.push_acr == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ vars.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_USERNAME }}
+          password: ${{ secrets.ALIYUN_PASSWORD }}
+
+      # ---------------- 组装标签：每个目标两个标签（默认 + 时间） ----------------
+      - name: Compute tags
+        id: t
+        env:
+          DEFAULT_TAG: ${{ steps.p.outputs.default_tag }}
+          TIME_TAG: ${{ steps.p.outputs.time_tag }}
+          GHCR_IMAGE: ${{ steps.p.outputs.ghcr_image }}
+          NAME_LC: ${{ steps.p.outputs.name_lc }}
+          PUSH_GHCR: ${{ steps.p.outputs.push_ghcr }}
+          PUSH_HUB: ${{ steps.p.outputs.push_hub }}
+          PUSH_ACR: ${{ steps.p.outputs.push_acr }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          ALIYUN_REGISTRY: ${{ vars.ALIYUN_REGISTRY }}
+          ALIYUN_NAMESPACE: ${{ vars.ALIYUN_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          tags=""
+          if [ "$PUSH_GHCR" = "true" ]; then
+            tags+="${GHCR_IMAGE}:${DEFAULT_TAG}"$'\n'
+            tags+="${GHCR_IMAGE}:${TIME_TAG}"$'\n'
+          fi
+          if [ "$PUSH_HUB" = "true" ]; then
+            hub="$(echo "${DOCKERHUB_USERNAME}/${NAME_LC}" | tr '[:upper:]' '[:lower:]')"
+            tags+="${hub}:${DEFAULT_TAG}"$'\n'
+            tags+="${hub}:${TIME_TAG}"$'\n'
+          fi
+          if [ "$PUSH_ACR" = "true" ]; then
+            acr="${ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE}/${NAME_LC}"
+            tags+="${acr}:${DEFAULT_TAG}"$'\n'
+            tags+="${acr}:${TIME_TAG}"$'\n'
+          fi
+          {
+            echo "list<<EOF"
+            printf '%s' "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "本次推送标签："
+          printf '%s' "$tags"
+
+      # ---------------- 一次 buildx 构建，多架构 manifest 自动合并 ----------------
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ steps.p.outputs.platforms }}
+          push: true
+          tags: ${{ steps.t.outputs.list }}
+          labels: |
+            org.opencontainers.image.title=GoogleColabPanel
+            org.opencontainers.image.description=Google Colab Web 管理面板
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        if: always()
+        env:
+          PLATFORMS: ${{ steps.p.outputs.platforms }}
+          DEFAULT_TAG: ${{ steps.p.outputs.default_tag }}
+          TIME_TAG: ${{ steps.p.outputs.time_tag }}
+          PUSH_GHCR: ${{ steps.p.outputs.push_ghcr }}
+          PUSH_HUB: ${{ steps.p.outputs.push_hub }}
+          PUSH_ACR: ${{ steps.p.outputs.push_acr }}
+          TAG_LIST: ${{ steps.t.outputs.list }}
+        run: |
+          {
+            echo "### 镜像构建结果"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 平台 | \`${PLATFORMS:-未解析}\` |"
+            echo "| 默认标签 | \`${DEFAULT_TAG:-未解析}\` |"
+            echo "| 时间标签 | \`${TIME_TAG:-未解析}\` |"
+            echo "| 推送目标 | ghcr=${PUSH_GHCR:-?} / dockerhub=${PUSH_HUB:-?} / aliyun=${PUSH_ACR:-?} |"
+            echo ""
+            echo '```'
+            printf '%s\n' "${TAG_LIST:-（无标签生成）}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
